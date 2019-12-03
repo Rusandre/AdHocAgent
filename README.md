@@ -8,7 +8,7 @@ At the beginning stage of your protocol project, when it changes frequently and 
 Later, when your project becomes mature, stabilizes and the confidence in the generated code becomes more important. You can switch to **IMAP** transport where, 
 in addition to code generation, possible to order testing of the generated code, and yes, it takes a longer time.
 
-To use **IMAP**, please activate, in your e-mail box settings, this transport access option. Recently e-mail providers highly restrict access to their system, so for your mailbox, 
+To use **IMAP**, please activate, in your mailbox settings, this transport access option. Recently e-mail providers highly restrict access to their system, so for your mailbox, 
 you have to relax this rule. In gmail, for example, please enter to your account security settings and let access for less secure apps.
 
 ![Capture](https://user-images.githubusercontent.com/29354319/69202440-a0cf1e80-0b7c-11ea-9e52-6c81655a38b4.PNG)
@@ -39,7 +39,7 @@ When compiling **AdHocAgent** you can
  - put it next to jar/class or 
  - copy to the current/working directory
  
-If you get **IMAP** connection problem, uncommented `mail.debug = true` option lets you get a full javamail connection log. Find details about `mail.debug` in [JavaMail documentation](https://javaee.github.io/javamail/FAQ).  
+If you get **IMAP** connection problem, uncommented `mail.debug = true` option lets you get a full `javamail` connection log. Find details about `mail.debug` in [JavaMail documentation](https://javaee.github.io/javamail/FAQ).  
  
 After complete your protocol description file.
 Compile **AdHocAgent** by yourself or take ready one jar file in the `bin` directory.
