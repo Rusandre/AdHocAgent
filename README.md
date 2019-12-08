@@ -44,7 +44,9 @@ If you get **IMAP** connection problem, uncommented `mail.debug = true` option l
 After complete your protocol description file.
 Compile **AdHocAgent** by yourself or take ready one jar file in the `bin` directory.
 Run **AdHocAgent**, it will try to find the description file, recognize the current workflow stage and:
-- compile, parse and check all used in the description names. **Programming languages used a set of reserved words. Using them and underscore, as first / last char of the name, are prohibited.**
+* compile, parse and check all used in the description names. 
+  * >**Programming languages, `AdHoc` supported, are using a set of reserved words. Using them and '_' _underscore_ , as first / last char of the name, is prohibited.**
+  * >**Packets, enums and channels names should be unique**
 - if the check names phase is passed, the program composes message with the protocol description file inside. If this file version was never sent, upload it to the server.
 - or/and try to receive server reply.
 - if getting the reply, **AdHocAgent** expand generated code in the [current/working directory](https://en.wikipedia.org/wiki/Working_directory) of the **AdHocAgent** process
@@ -59,3 +61,4 @@ On our side, when the server receives your specification it will checks their co
 - example of using generated API 
 
 If any error occurred, you will be notified of a possible delay and the AdHoc team will deal with the problems.
+

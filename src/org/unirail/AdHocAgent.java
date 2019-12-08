@@ -23,6 +23,7 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.Executors;
@@ -69,6 +70,7 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 				LOG.warning( br.lines().collect( Collectors.joining( "\n" ) ) );
 				exit( "Compilation error", 7 );
 			}
+			HashSet<String> unique_names = new HashSet<>();
 			
 			try (Stream<Path> walk = Files.walk( tmp ))
 			{
@@ -85,7 +87,11 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 				{
 					final Class<?> CLASS = loadClass( class_name );
 					
-					if (is_prohibited( CLASS.getSimpleName() )) got_prohibited( "Сlass < " + CLASS.getSimpleName() + " > name is prohibited" );
+					String simpleName = CLASS.getSimpleName();
+					
+					if(!unique_names.add( class_name  )) got_prohibited( "Сlass < " + simpleName + " > name is not unique" );
+					
+					if (is_prohibited( simpleName )) got_prohibited( "Сlass < " + simpleName + " > name is prohibited" );
 					
 					for (Field fld : CLASS.getFields())
 						if (is_prohibited( fld.getName() )) got_prohibited( "Сlass < " + CLASS.getSimpleName() + " > field < " + fld.getName() + " > name is prohibited" );
@@ -180,7 +186,6 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 				final InternetAddress server_mail = new InternetAddress( props.getProperty( "server.mail", "" ).toLowerCase() );
 				
 				final Session session = Session.getInstance( props, null );
-				
 				
 				final String protocol = props.getProperty( "mail.imaps.host" ) != null ? "imaps" :
 				                        props.getProperty( "mail.imap.host" ) != null ? "imap" :
@@ -305,6 +310,8 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 					os.close();
 				}
 			}
+			
+			
 		} catch (Exception e)
 		{
 			e.printStackTrace();
