@@ -5,9 +5,9 @@ Then waiting for server reply with generated result, download and unpack it.
 As transport, **AdHocAgent** can use raw **TCP** / **HTTP** or **IMAP**.  
 At the beginning stage of your protocol project, when it changes frequently and getting the generated code faster is important, using raw 
 **TCP** (or **HTTP** if you have to use a proxy) is the most effectively.  
-Later, when your project becomes mature, stabilizes and the confidence in the generated code becomes more important. You can switch to **IMAP** transport where, 
+Later, when your project becomes mature, stabilizes and the confidence in the generated code becomes more important. You can switch to **IMAP** transport, where, 
 in addition to code generation, possible to order testing of the generated code, and yes, it takes a longer time.
-
+________________________________
 To use **IMAP**, please activate, in your mailbox settings, this transport access option. Recently e-mail providers highly restrict access to their system, so for your mailbox, 
 you have to relax this rule. In gmail, for example, please enter to your account security settings and let access for less secure apps.
 
@@ -40,12 +40,11 @@ When compiling **AdHocAgent** you can
  - copy to the current/working directory
  
 If you get **IMAP** connection problem, uncommented `mail.debug = true` option lets you get a full `javamail` connection log. Find details about `mail.debug` in [JavaMail documentation](https://javaee.github.io/javamail/FAQ).  
- 
-After complete your protocol description file.
-Compile **AdHocAgent** by yourself or take ready one jar file in the `bin` directory.
-Run **AdHocAgent**, it will try to find the description file, recognize the current workflow stage and:
+_______________________________ 
+Compile **AdHocAgent** by yourself or take ready one jar file in the `bin` directory.  
+After you complete your protocol description file, run **AdHocAgent**, it will try to find the description file, recognize the current workflow stage and:
 * compile, parse and check all used in the description names. 
-  * >**Programming languages, `AdHoc` supported, are using a set of reserved words. Using them and '_' _underscore_ , as first / last char of the name, is prohibited.**
+  * >**Programming languages, `AdHoc` supported, are using a set of reserved words. Using them and '_' _underscore_ , as first/last char of the name, is prohibited.**
   * >**Packets, enums and channels names should be unique**
 - if the check names phase is passed, the program composes message with the protocol description file inside. If this file version was never sent, upload it to the server.
 - or/and try to receive server reply.
