@@ -42,7 +42,11 @@ When compiling **AdHocAgent** you can
 If you get **IMAP** connection problem, uncommented `mail.debug = true` option lets you get a full `javamail` connection log. Find details about `mail.debug` in [JavaMail documentation](https://javaee.github.io/javamail/FAQ).  
 _______________________________ 
 Compile **AdHocAgent** by yourself or take ready one jar file in the `bin` directory.  
-After you complete your protocol description file, run **AdHocAgent**, it will try to find the description file, recognize the current workflow stage and:
+After you complete your protocol description file, run **AdHocAgent**
+ > `java -jar /path/to/AdHocAgent.jar /path/to/protocol_descriptor.java`  
+ `client.properties` settings file should be next to `AdHocAgent.jar`
+ 
+it will try to find the description file, recognize the current workflow stage and:
 * compile, parse and check all used in the description names. 
   * >**Programming languages, `AdHoc` supported, are using a set of reserved words. Using them and '_' _underscore_ , as first/last char of the name, is prohibited.**
   * >**Packets, enums and channels names should be unique**
