@@ -1,19 +1,8 @@
 package org.unirail;
 
-import com.sun.mail.imap.IdleManager;
-import com.sun.mail.smtp.SMTPTransport;
 
-import javax.mail.*;
-import javax.mail.event.MessageCountAdapter;
-import javax.mail.event.MessageCountEvent;
-import javax.mail.internet.InternetAddress;
-import javax.mail.internet.MimeMessage;
-import javax.mail.search.SubjectTerm;
-import javax.swing.*;
-import java.awt.*;
-import java.awt.event.WindowAdapter;
-import java.awt.event.WindowEvent;
 import java.io.*;
+import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
 import java.net.HttpURLConnection;
 import java.net.Socket;
@@ -22,20 +11,19 @@ import java.net.URLDecoder;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
-import java.util.Arrays;
-import java.util.HashSet;
+import java.util.*;
 import java.util.List;
-import java.util.Properties;
-import java.util.concurrent.Executors;
 import java.util.jar.JarEntry;
 import java.util.jar.JarInputStream;
 import java.util.logging.Logger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class AdHocAgent extends java.security.SecureClassLoader {
 	
-	private Path tmp;
+	private static Path tmp;
 	
 	@Override protected Class<?> findClass( String name ) throws ClassNotFoundException {
 		
@@ -50,55 +38,149 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 		return null;
 	}
 	
-	private boolean has_prohibited = false;
+	private boolean is_wrong = false;
 	
-	private void got_prohibited( String where ) {
-		has_prohibited = true;
-		LOG.warning( where );
+	private void wrong( String what ) {
+		is_wrong = true;
+		LOG.warning( what );
 	}
 	
-	private AdHocAgent( String annotations_directory, Path description_path ) {
+	
+	private AdHocAgent( String sourcepath ) {
 		try
 		{
 			tmp = Files.createTempDirectory( "ClientAgent" );
-			final String   meta = tmp.resolve( "org/unirail/AdHoc/" ).toString();
-			Process        proc = Runtime.getRuntime().exec( new String[]{"javac", "-d", tmp.toString(), "-cp", annotations_directory, "-encoding", "UTF-8", description_path.toString()} );
-			BufferedReader br   = new BufferedReader( new InputStreamReader( proc.getErrorStream() ) );
 			
+			Process proc = Runtime.getRuntime().exec( new String[]{"javac",
+			                                                       "-d",
+			                                                       tmp.toString(),
+			                                                       "-sourcepath",
+			                                                       sourcepath,
+			                                                       "-encoding", "UTF-8",
+			                                                       provided_file_path.toString()} );
+			
+			final BufferedReader br = new BufferedReader( new InputStreamReader( proc.getErrorStream() ) );
 			if (proc.waitFor() != 0)
 			{
 				LOG.warning( br.lines().collect( Collectors.joining( "\n" ) ) );
 				exit( "Compilation error", 7 );
 			}
-			HashSet<String> unique_names = new HashSet<>();
+			
+			Set<String> unique_names = new HashSet<>();
 			
 			try (Stream<Path> walk = Files.walk( tmp ))
 			{
-				final int len = tmp.toString().length() + 1;
-				List<String> classes = walk.filter( p -> Files.isRegularFile( p ) && !p.toString().startsWith( meta ) )
-						                       .map( p -> p.toString().substring( len ).replace( ".class", "" ).replace( "/", "." ).replace( "\\", "." ) ).collect( Collectors.toList() );
+				final String meta_path = "org" + File.separator + "unirail" + File.separator + "AdHoc";
+				final int    tmp_len   = tmp.toString().length() + 1;
+				final String skip_meta = tmp.resolve( meta_path ).toString();
 				
+				final Set<String> classes = walk.filter( p -> Files.isRegularFile( p ) && !p.toString().startsWith( skip_meta ) ) //skip org/unirail/AdHoc/ meta namespace
+						                            .map( p -> p.toString().substring( tmp_len ).replace( ".class", "" ).replace( File.separator, "." ) ).collect( Collectors.toSet() );
 				
-				for (String pack : classes.get( 0 ).split( "\\." ))
-					if (is_prohibited( pack )) got_prohibited( "Package < " + classes.get( 0 ) + " > name component < " + pack + " >  is prohibited" );
+				//checking prohibited part name in namespaces
+				classes.stream().map( full_name -> full_name.substring( 0, full_name.lastIndexOf( '.' ) ) ).distinct().forEach(
+						Package ->
+						{
+							for (String str : Package.split( "\\." ))
+								if (is_prohibited( str )) wrong( "Package < " + Package + " > part name < " + str + " >  is prohibited" );
+						}
+				);
+				final String description_file_path_str = provided_file_path.toString();
+				String       str                       = description_file_path_str.replace( File.separator, "." );
+				final String name                      = str.substring( 0, str.length() - 5 );//trim .java
 				
+				final String project_namespace = classes.stream().filter( name::endsWith ).findFirst().get();
 				
-				for (String class_name : classes)
+				for (String full_name : classes)
 				{
-					final Class<?> CLASS = loadClass( class_name );
+					final Class<?> CLASS = loadClass( full_name );
 					
 					String simpleName = CLASS.getSimpleName();
+					if (CLASS.isInterface()) continue;//just skip
 					
-					if(!unique_names.add( class_name  )) got_prohibited( "Сlass < " + simpleName + " > name is not unique" );
 					
-					if (is_prohibited( simpleName )) got_prohibited( "Сlass < " + simpleName + " > name is prohibited" );
+					if (!CLASS.isEnum() && CLASS.getInterfaces().length == 0)//for Pack declaration classes only
+						if (full_name.startsWith( project_namespace ))//project class
+						{
+							if (!unique_names.add( simpleName )) wrong( "Pack declaration class < " + full_name + " > name is not unique" );//checking unique_names
+						}
+						else//none project, Lib pack class
+						{
+							Annotation[] anns = CLASS.getAnnotations();//check ID present
+							if (anns.length == 0 || !anns[0].annotationType().getName().equals( "id" )) wrong( "Library Pack declaration class < " + full_name + " > have to have predefined unique id annotation." );
+						}
+					
+					//and all classes check for prohibited names
+					if (is_prohibited( simpleName )) wrong( "Сlass < " + full_name + " > name is prohibited" );
 					
 					for (Field fld : CLASS.getFields())
-						if (is_prohibited( fld.getName() )) got_prohibited( "Сlass < " + CLASS.getSimpleName() + " > field < " + fld.getName() + " > name is prohibited" );
+						if (is_prohibited( fld.getName() )) wrong( "Сlass < " + full_name + " > field < " + fld.getName() + " > name is prohibited" );
 					
 					for (Field fld : CLASS.getDeclaredFields())
-						if (is_prohibited( fld.getName() )) got_prohibited( "Сlass < " + CLASS.getSimpleName() + " > field < " + fld.getName() + " > name is prohibited" );
+						if (is_prohibited( fld.getName() )) wrong( "Сlass < " + full_name + " > field < " + fld.getName() + " > name is prohibited" );
 				}
+				/////////////////////////////////////////////////////////if (is_wrong) exit( "Prohibited names detected", 1 );
+				
+				//combine parts if they exists in one file
+				
+				String description_src = new String( Files.readAllBytes( provided_file_path ), StandardCharsets.UTF_8 );//load description file content
+				
+				
+				boolean       process_imports = false;
+				final Matcher imports         = imports_pattern.matcher( description_src );
+				while (imports.find() &&
+				       !(process_imports = !imports.group( 1 ).replaceAll( "[\\p{javaWhitespace}\\p{javaIdentifierIgnorable}]", "" ).startsWith( "org.unirail.AdHoc" ))
+				) {}
+				
+				if (process_imports)//descriptor file has some external dependencies. let gather all in one file before upload
+				{
+					List<Path> java_srcs = new ArrayList<>();//list of used in compilation source files
+					for (String dir : sourcepath.split( File.pathSeparator ))
+					{
+						final int len = dir.length() + 1;
+						
+						Files.walk( Paths.get( dir ) ).forEach( p -> {
+							String s = p.toString();
+							
+							if (Files.isRegularFile( p )
+							    && s.endsWith( ".java" )
+							    && !s.equals( description_file_path_str ) //skip descriptor file itself
+							    && !(s = s.substring( len )).startsWith( meta_path )//skip meta annotations
+							    && classes.contains( s.substring( 0, s.length() - 5 ).replace( File.separator, "." ) ))//used in compilation
+								java_srcs.add( p );
+							
+						} );
+					}
+					
+					int class_decl = get_class_declare( description_src );//class declaration place
+					
+					long t = System.currentTimeMillis();
+					description_src = "package " + project_namespace + ";//" + t + "\n" +//    mark
+					                  description_src.substring( class_decl ) +
+					                  "\n//" + t + "\n";//                                     mark
+					for (Path path : java_srcs)
+					{
+						String src = new String( Files.readAllBytes( path ), StandardCharsets.UTF_8 );
+						class_decl = get_class_declare( src );
+						
+						description_src += src.substring( class_decl + "public ".length() );//skip public
+					}
+				}
+				
+				File file = tmp.resolve( project ).toFile();//temp name, before know real file length
+				
+				OutputStreamWriter os = new OutputStreamWriter( new FileOutputStream( file ), StandardCharsets.UTF_8 );
+				os.write( description_src );
+				os.flush();
+				os.close();
+				
+				Path out = tmp.resolve( file.length() + " " + project );
+				
+				file.renameTo( out.toFile() );
+				
+				new ProcessBuilder( "jar", "cfM", "jar", out.toString() ).directory( tmp.toFile() ).start().waitFor(); //produce JAR
+				
+				
 			} catch (IOException e)
 			{
 				e.printStackTrace();
@@ -109,162 +191,80 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 		}
 	}
 	
+	static BytesSrc active_src = null;
+	
+	interface BytesSrc {
+		void push_into( OutputStream dst ) throws Exception;
+	}
+	
 	public static void main( String[] args ) {
 		try
 		{
-			final Properties props = new Properties();
 			{
-				final Path start       = start_file_path();
-				Path       client_path = start.getParent().resolve( "client.properties" );
-				LOG.info( "Trying to use " + client_path );//in the classpath
-				if (Files.exists( client_path ))
+				final Path self       = self_path();
+				Path       props_path = self.getParent().resolve( "AdHocAgent.properties" );
+				LOG.info( "Trying to use " + props_path );// next to program binary
+				if (Files.exists( props_path ))
 				{
-					LOG.info( "Using " + client_path );
-					props.load( Files.newBufferedReader( client_path ) );
+					LOG.info( "Using " + props_path );
+					props.load( Files.newBufferedReader( props_path ) );
 				}
 				else
 				{
-					client_path = destination_dir_path.resolve( "client.properties" );
-					LOG.info( "Trying to use " + client_path );//in the current work dir
-					if (Files.exists( client_path ))
+					props_path = dest_dir_path.resolve( "AdHocAgent.properties" );
+					LOG.info( "Trying to use " + props_path );//in the current working dir
+					if (Files.exists( props_path ))
 					{
-						LOG.info( "Using " + client_path );
-						props.load( Files.newBufferedReader( client_path ) );
+						LOG.info( "Using " + props_path );
+						props.load( Files.newBufferedReader( props_path ) );
 					}
-					else if (start.endsWith( ".jar" ))//inside jar
+					else if (self.endsWith( ".jar" ))//inside jar
 					{
-						LOG.info( "Trying to use client.properties inside " + start );
-						final InputStream is = AdHocAgent.class.getResourceAsStream( "/client.properties" );
-						if (is == null) exit( "File client.properties inside " + start + "is not found.", 1 );
-						LOG.info( "Using client.properties inside " + start );
+						LOG.info( "Trying to use AdHocAgent.properties inside " + self );
+						final InputStream is = AdHocAgent.class.getResourceAsStream( "/AdHocAgent.properties" );
+						if (is == null) exit( "File AdHocAgent.properties inside " + self + " is not found.", 1 );
+						LOG.info( "Using AdHocAgent.properties inside " + self );
 						props.load( is );
 					}
-					else exit( "client.properties file is absent", 1 );
+					else exit( "AdHocAgent.properties file is not found", 1 );
 				}
 			}
-			String password = props.getProperty( "mail.password", "" );
 			
 			switch (args.length)
 			{
-				case 1://password
-					read_description_file_path( args[0] );
+				case 0:
+					provided_file_path = Paths.get( props.getProperty( "description_file_path" ).trim() );
 					break;
-				case 2:
-					read_description_file_path( args[0] );
-					password = args[1];
+				case 1:
+					provided_file_path = Paths.get( args[0] );
 			}
 			
-			if (description_file_path == null) read_description_file_path( props.getProperty( "description.file.path" ) );
 			
-			if (!Files.exists( description_file_path )) exit( "Description file " + description_file_path + " is not exist.", 1 );
+			if (!Files.exists( provided_file_path )) exit( "Description file " + provided_file_path + " is not exist.", 1 );
 			
-			{// =========================     description file local checking
-				
-				final long descriptor_file_time = description_file_path.toFile().lastModified();
-				if (System.currentTimeMillis() < descriptor_file_time) exit( "Current description " + description_file_path + " is up-to-date.", 0 );
-				Path annotations_directory = Paths.get( props.getProperty( "annotations.directory" ) );
-				
-				if (!Files.exists( annotations_directory )) exit( "AdHoc annotations directory " + annotations_directory + " is not exist.", 1 );
-				if (!Files.exists( annotations_directory.resolve( "org" ) )) exit( "Root AdHoc annotations directory 'org' is not exist in " + annotations_directory, 1 );
-				
-				if (new AdHocAgent( annotations_directory.toString(), description_file_path ).has_prohibited)//check names
-					exit( "Prohibited names detected", 1 );
-				
-				final String name = description_file_path.getFileName().toString();
-				project = name.substring( 0, name.length() - 5 ) + (is_testing_result ? "!" : ".") + descriptor_file_time;//compose project name
-			}
+			// =========================     description file checking locally
 			
-			final String my_email = props.getProperty( "mail.box", props.getProperty( "mail.login" ) );
+			final File provided_file      = provided_file_path.toFile();
+			final long provided_file_time = provided_file.lastModified();
+			if (System.currentTimeMillis() < provided_file_time) exit( "Provided file " + provided_file_path + " is up-to-date.", 0 );
 			
-			if (is_testing_result || !props.containsKey( "server.tcp" ))//generate and check via IMAP only
-			{
-				if (password == "") password = PasswordPanel.showDialog( props.getProperty( "mail.login" ) + " password is:" );
-				if (password == "") exit( "Please, provide email password via client.properties or commandline.", 1 );
-				
-				String login = props.getProperty( "mail.login", props.getProperty( "mail.box", "" ) );
-				if (login == "") exit( "Provide email login via client.properties or commandline.", 1 );
-				final InternetAddress server_mail = new InternetAddress( props.getProperty( "server.mail", "" ).toLowerCase() );
-				
-				final Session session = Session.getInstance( props, null );
-				
-				final String protocol = props.getProperty( "mail.imaps.host" ) != null ? "imaps" :
-				                        props.getProperty( "mail.imap.host" ) != null ? "imap" :
-				                        props.getProperty( "mail.pop3s.host" ) != null ? "pop3s" :
-				                        props.getProperty( "mail.pop3.host" ) != null ? "pop3" : null;
-				
-				final Store store = session.getStore( protocol );
-				LOG.info( "Connecting to " + my_email + " ..." );
-				store.connect( login, password );
-				LOG.info( "Connected" );
-				
-				
-				final Folder inbox = store.getFolder( "INBOX" );
-				inbox.open( Folder.READ_WRITE );
-				
-				final IdleManager idleManager = new IdleManager( session, Executors.newCachedThreadPool() );
-				
-				inbox.addMessageCountListener( new MessageCountAdapter() {
-					public void messagesAdded( MessageCountEvent ev ) {
-						try
-						{
-							process( Arrays.stream( ev.getMessages() )
-									         .filter( ( msg ) -> {
-										         try { return msg.getSubject().contains( project );} catch (MessagingException e) {throw new RuntimeException( e );}
-									         } ) );
-							LOG.info( "Waiting for more messages..." );
-							idleManager.watch( inbox ); // keep watching for new messages
-						} catch (Exception e)
-						{
-							e.printStackTrace();
-						}
-					}
-				} );
-				
-				final String msg_subject = "AdHoc project " + project;
-				
-				if (description_file_path.toFile().canWrite())// send description
-				{
-					MimeMessage msg = new MimeMessage( session );
-					
-					msg.setFrom( my_email );
-					msg.setRecipients( Message.RecipientType.TO, server_mail.getAddress() );
-					msg.setSubject( msg_subject );
-					msg.setText( new String( Files.readAllBytes( description_file_path ), StandardCharsets.UTF_8 ), "UTF-8" );
-					
-					msg.setDisposition( project );
-					
-					LOG.info( "Sending description " + description_file_path + "  ..." );
-					SMTPTransport smtp = (SMTPTransport) session.getTransport( props.getProperty( "mail.smtps.host" ) != null ? "smtps" : "smtp" );
-					smtp.connect( login, password );
-					smtp.sendMessage( msg, msg.getAllRecipients() );
-					smtp.close();
-					LOG.info( "Sent OK!" );
-					
-					description_file_path.toFile().setWritable( false );//this version of the description file is in process mark
-				}
-				else
-					process( Arrays.stream( inbox.search( new SubjectTerm( project ) ) ) );
-				
-				LOG.info( "Waiting for server reply..." );
-				idleManager.watch( inbox );
-			}
-			else //fast, API generate only
-			{
-				String project = description_file_path.getFileName().toString();
-				project = project.substring( 0, project.length() - 5 );
-				
-				final Path mail_project_size = Files.copy( description_file_path, Files.createTempDirectory( "ClientAgent" ).resolve( my_email + " " + project + " " + description_file_path.toFile().length() ) );
-				
-				final Path jar = mail_project_size.getParent().resolve( "jar" );
-				
-				new ProcessBuilder( "jar", "cfM", "jar", "*" ).directory( jar.getParent().toFile() ).start().waitFor(); //produce JAR
-				mail_project_size.toFile().delete();
-				
-				final String server_tcp = props.getProperty( "server.tcp" );
-				
-				LOG.info( "Connecting to the " + server_tcp );
-				
-				if (server_tcp.startsWith( "http://" ))
+			project = props.getProperty( "login" ) + " " + provided_file_time + provided_file_path.getFileName().toString().replace( " ", "_" );
+			
+			
+			if (provided_file_path.toFile().canWrite()) send();
+			else //file was sent just query result
+				active_src = os -> {
+					os.write( Protocol.ToRequestResult );
+					os.write( project.getBytes( StandardCharsets.UTF_8 ) );
+				};
+			
+			
+			final String server_tcp = props.getProperty( "server" );
+			
+			LOG.info( "Connecting to the " + server_tcp );
+			
+			if (server_tcp.startsWith( "http://" ))
+				for (; ; )
 				{
 					// proxy settings https://docs.oracle.com/javase/8/docs/api/java/net/doc-files/net-properties.html#Proxies
 					// uncomment lines to use proxy or pass proxi params via command line
@@ -273,7 +273,7 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 					
 					final HttpURLConnection http = (HttpURLConnection) new URL( server_tcp ).openConnection();
 					http.setDoOutput( true );
-					http.addRequestProperty( "User-Agent", "AdHocClientAgent" );
+					http.addRequestProperty( "User-Agent", "AdHocAgent" );
 					http.addRequestProperty( "Accept", "*/*" );
 					http.setRequestProperty( "Content-Type", "application/octet-stream" );
 					
@@ -281,17 +281,21 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 					
 					LOG.info( "Connected OK" );
 					
-					Files.copy( jar, os );
+					active_src.push_into( os );
 					os.flush();
 					
-					jar.toFile().delete();
-					jar.getParent().toFile().delete();
-					description_file_path.toFile().setWritable( false );//this version of the description file is in process mark
-					
-					extract( http.getInputStream() );
+					receive( http.getInputStream() );
 					os.close();
+					
+					if (0 < wait_sec)
+					{
+						System.out.println( "Will request result in " + wait_sec + " seconds" );
+						Thread.sleep( wait_sec * 1000 );
+					}
+					wait_sec = 0;
 				}
-				else
+			else
+				for (; ; )
 				{
 					final String[]     parts  = server_tcp.split( ":" );
 					final Socket       socket = new Socket( parts[0], Integer.parseInt( parts[1] ) );
@@ -299,18 +303,19 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 					
 					LOG.info( "Connected OK" );
 					
-					Files.copy( jar, os );
+					active_src.push_into( os );
 					os.flush();
 					
-					jar.toFile().delete();
-					jar.getParent().toFile().delete();
-					description_file_path.toFile().setWritable( false );//this version of the description file is in process mark
-					
-					extract( socket.getInputStream() );
+					receive( socket.getInputStream() );
 					os.close();
+					
+					if (0 < wait_sec)
+					{
+						System.out.println( "Will request result in " + wait_sec + " seconds" );
+						Thread.sleep( wait_sec * 1000 );
+					}
+					wait_sec = 0;
 				}
-			}
-			
 			
 		} catch (Exception e)
 		{
@@ -318,40 +323,82 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 		}
 	}
 	
-	
-	static void process( Stream<Message> msgs ) throws Exception {
-		
-		Message msg = msgs.min(
-				( m1, m2 ) ->
-				{
-					try
-					{
-						m1.setFlag( Flags.Flag.SEEN, true );
-						m2.setFlag( Flags.Flag.SEEN, true );
-						return m2.getSentDate().compareTo( m1.getSentDate() );
-					} catch (MessagingException e)
-					{
-						throw new RuntimeException( e );
-					}
-				} ).orElse( null );
-		
-		if (msg != null)
+	static void send() throws Exception {
+		if (provided_file_path.endsWith( ".prop" ))
 		{
-			String subj = msg.getSubject();
+			Files.copy( provided_file_path, tmp = Files.createTempDirectory( "ClientAgent" ).resolve( provided_file_path.toFile().length() + " " + project ) );
 			
-			if (subj.equals( "Generating AdHoc for " + project + " problem report" ))
-			{
-				LOG.warning( subj );
-				LOG.warning( msg.getContent().toString() );
-			}
-			else if (subj.equals( "AdHoc for " + project + " is generated" ))
-			{
-				Multipart att = (Multipart) msg.getContent();
-				extract( att.getBodyPart( 1 ).getInputStream() );//extract generated code from mail attachment
-			}
+			new ProcessBuilder( "jar", "cfM", "jar", tmp.toString() ).directory( tmp.getParent().toFile() ).start().waitFor(); //produce JAR
+			tmp        = tmp.getParent();
+			active_src = os -> {
+				os.write( Protocol.ProtoFile );
+				Files.copy( tmp.resolve( "jar" ), os );
+				provided_file_path.toFile().setWritable( false );//this version of the description file is in process mark
+			};
+		}
+		else
+		{
+			new AdHocAgent( props.getProperty( "sourcepath" ) ); //check
+			active_src = os -> {
+				os.write( Protocol.DescriptorFile );
+				Files.copy( tmp.resolve( "jar" ), os );
+				provided_file_path.toFile().setWritable( false );//this version of the description file is in process mark
+			};
 		}
 	}
 	
+	static int wait_sec = 0;
+	
+	static void receive( InputStream src ) throws Exception {
+		switch (src.read())
+		{
+			case Protocol.NextRequestAfter:
+				wait_sec = src.read();
+				break;
+			case Protocol.ReUpload:
+				send();
+				break;
+			case Protocol.UnirailInfo:
+				wait_sec = src.read();
+				Path tmp = Files.createTempDirectory( "ClientAgent" ).resolve( "unirail.info" );
+				extract( src, tmp );
+				System.out.println( "Information from " + tmp );
+				System.out.println( Files.lines( tmp, StandardCharsets.UTF_8 ).collect( Collectors.joining( System.lineSeparator() ) ) );//print unirail.info message
+				break;
+			case Protocol.DescriptorFile:
+				extract( src, dest_dir_path );
+				
+				String new_src = new String( Files.readAllBytes( dest_dir_path.resolve( provided_file_path.getFileName() ) ), StandardCharsets.UTF_8 );//from server, updated project source
+				
+				if (new_src.startsWith( "public" ))// file with imports
+				{
+					//getting header from current description file
+					String cur_src = new String( Files.readAllBytes( provided_file_path ), StandardCharsets.UTF_8 );
+					String header  = cur_src.substring( 0, get_class_declare( cur_src ) );//current descriptor header is - code, up from project class declaration position
+					
+					new_src = header + new_src;//extracted new source
+				}
+				
+				//backup current version
+				Files.copy( provided_file_path, provided_file_path.getParent().resolve( "prev_" + provided_file_path.getFileName() ), StandardCopyOption.REPLACE_EXISTING );
+				
+				File curr_file = provided_file_path.toFile();
+				
+				curr_file.setWritable( true );
+				final OutputStreamWriter os = new OutputStreamWriter( new FileOutputStream( curr_file, false ), StandardCharsets.UTF_8 );//replace content
+				os.write( new_src );
+				os.flush();
+				os.close();
+				curr_file.setLastModified( System.currentTimeMillis() + Integer.MAX_VALUE * 100L ); // successfully updated mark
+				
+				exit( "Please find generated files in " + dest_dir_path + " and previous version backup " + "prev_" + provided_file_path.getFileName(), 0 );
+			
+			case Protocol.ProtoFile:
+				extract( src, dest_dir_path );
+				exit( "Please find converted file in " + dest_dir_path, 0 );
+		}
+		
+	}
 	
 	static void exit( String banner, int code ) throws Exception {
 		if (code == 0)
@@ -367,72 +414,40 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 		System.exit( code );
 	}
 	
-	private static final Path destination_dir_path = FileSystems.getDefault().getPath( "" ).toAbsolutePath();//working/current directory
+	private static final Path dest_dir_path = FileSystems.getDefault().getPath( "" ).toAbsolutePath();//working/current directory
 	
 	private static final Logger LOG = Logger.getLogger( "ClientAgent" );
 	
-	
-	private static boolean is_testing_result;
-	private static Path    description_file_path = null;
-	
-	private static void read_description_file_path( String src ) {
-		src = src.trim();
-		if (is_testing_result = src.endsWith( "!" )) src = src.substring( 0, src.length() - 1 );//testing request
-		description_file_path = Paths.get( src );
-	}
+	private static Path provided_file_path = null;
 	
 	private static String project = "";
 	
-	
-	private static void extract( InputStream is ) throws IOException {
-		try
+	private static void extract( InputStream src, Path dst ) throws IOException {
+		JarInputStream jar    = new JarInputStream( src );
+		byte[]         buffer = new byte[1024];
+		
+		for (JarEntry je; (je = jar.getNextJarEntry()) != null; )//extracting everything from jar into destination_dir_path
 		{
-			JarInputStream jar    = new JarInputStream( is );
-			byte[]         buffer = new byte[1024];
+			final String name = je.getName();
 			
-			for (JarEntry je; (je = jar.getNextJarEntry()) != null; )
-			{
-				final String name = je.getName();
-				
-				final File file = destination_dir_path.resolve( name ).toFile();
-				
-				if (name.endsWith( "/" )) file.mkdirs();
-				else
-				{
-					FileOutputStream out = new FileOutputStream( file );
-					for (int len; -1 < (len = jar.read( buffer )); ) out.write( buffer, 0, len );
-					
-					if (name.equals( "unirail.info" ))
-						System.out.println( Files.lines( file.toPath(), StandardCharsets.UTF_8 ).collect( Collectors.joining( System.lineSeparator() ) ) );//print unirail.info
-					
-					jar.closeEntry();
-					out.flush();
-					out.close();
-				}
-			}
-			jar.close();
-			Path new_description = destination_dir_path.resolve( description_file_path.getFileName() );
+			final File file = dst.resolve( name ).toFile();
 			
-			if (!Files.exists( new_description )) exit( "unirail.info only", 2 );//probably received unirail.info only
-			
-			//old description overwriting
-			if (description_file_path.toFile().canWrite())//the file may be been edited till was in the process
-				exit( "Attention! Please resolve file version conflict. Compare " + description_file_path + " with received " + destination_dir_path.resolve( description_file_path.getFileName() ), 0 );
+			if (name.endsWith( "/" )) file.mkdirs();
 			else
 			{
-				description_file_path.toFile().setWritable( true );
-				Files.move( new_description, description_file_path, StandardCopyOption.REPLACE_EXISTING );
-				description_file_path.toFile().setLastModified( System.currentTimeMillis() + Integer.MAX_VALUE * 100L ); // successfully updated mark
+				FileOutputStream out = new FileOutputStream( file );
+				for (int len; -1 < (len = jar.read( buffer )); ) out.write( buffer, 0, len );
 				
-				exit( "Please find generated files in " + destination_dir_path, 0 );
+				jar.closeEntry();
+				out.flush();
+				out.close();
 			}
-		} catch (Exception e)
-		{
-			e.printStackTrace();
 		}
+		jar.close();
 	}
 	
-	public static Path start_file_path() throws Exception {
+	
+	static Path self_path() throws Exception {
 		Class  context = AdHocAgent.class;
 		String classFileName;
 		{
@@ -447,7 +462,32 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 		                                     uri.substring( "file:/".length() ), Charset.defaultCharset().name() ) );
 	}
 	
-	public static boolean is_prohibited( String name ) {
+	static final Properties props = new Properties();
+	
+	static final Pattern class_declaration_pattern = Pattern.compile( "\\s*(public|private)\\s+class\\s+(\\w+)\\s+((extends\\s+\\w+)|(implements\\s+\\w+( ,\\w+)*))?\\s*\\{" );
+	
+	static final int get_class_declare( String src ) {
+		Matcher classes = class_declaration_pattern.matcher( src );
+		return classes.find() ? classes.start( 1 ) : -1;
+	}
+	
+	
+	static final Pattern imports_pattern = Pattern.compile( "import\\p{javaIdentifierIgnorable}*\\p{javaWhitespace}+(?:static\\p{javaIdentifierIgnorable}*\\p{javaWhitespace}+)?(\\p{javaJavaIdentifierStart}[\\p{javaJavaIdentifierPart}\\p{javaIdentifierIgnorable}]*(?:\\p{javaWhitespace}*\\.\\p{javaWhitespace}*\\*|(?:\\p{javaWhitespace}*\\.\\p{javaWhitespace}*\\p{javaJavaIdentifierStart}[\\p{javaJavaIdentifierPart}\\p{javaIdentifierIgnorable}]*)+(?:\\p{javaWhitespace}*\\.\\p{javaWhitespace}*\\*)?))\\p{javaWhitespace}*;" );
+	
+	
+	interface Protocol {
+		int
+				DescriptorFile   = 0,
+				ProtoFile        = 2,
+				ToRequestResult  = 1,
+				NextRequestAfter = 3,
+				ReUpload         = 4,
+				UnirailInfo      = 5;
+		
+	}
+	
+	
+	static boolean is_prohibited( String name ) {
 		if (name.startsWith( "_" ) || name.endsWith( "_" )) return true;
 		switch (name)
 		{
@@ -633,47 +673,5 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 }
 
 
-class PasswordPanel extends JPanel {
-	
-	private final JPasswordField JFieldPass;
-	private       boolean        gainedFocusBefore;
-	
-	public PasswordPanel() {
-		super( new FlowLayout() );
-		gainedFocusBefore = false;
-		JFieldPass        = new JPasswordField();
-		Dimension d = new Dimension();
-		d.setSize( 30, 22 );
-		JFieldPass.setMinimumSize( d );
-		JFieldPass.setColumns( 10 );
-		JLabel JLblPass = new JLabel( "Password: " );
-		add( JLblPass );
-		add( JFieldPass );
-	}
-	
-	public static String showDialog( String title ) {
-		final PasswordPanel pPnl = new PasswordPanel();
-		JOptionPane         op   = new JOptionPane( pPnl );
-		op.setMessageType( JOptionPane.QUESTION_MESSAGE );
-		op.setOptionType( JOptionPane.OK_CANCEL_OPTION );
-		JDialog dlg = op.createDialog( null, title );
-		dlg.addWindowFocusListener( new WindowAdapter() {
-			@Override
-			public void windowGainedFocus( WindowEvent e ) {
-				if (!pPnl.gainedFocusBefore)
-				{
-					pPnl.gainedFocusBefore = true;
-					pPnl.JFieldPass.requestFocusInWindow();
-				}
-			}
-		} );
-		
-		dlg.setDefaultCloseOperation( WindowConstants.DISPOSE_ON_CLOSE );
-		
-		dlg.setVisible( true );
-		
-		Object val = op.getValue();
-		return val != null && val.equals( JOptionPane.OK_OPTION ) ? new String( pPnl.JFieldPass.getPassword() ) : null;
-	}
-}
+
 

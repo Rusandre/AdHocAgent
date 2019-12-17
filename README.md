@@ -1,65 +1,65 @@
 # AdHocAgent
-This is source code of the program which checks **AdHoc** protocol description file, pack and upload it. 
-Then waiting for server reply with generated result, download and unpack it.
+This is source code of the program which checks prepared **AdHoc** protocol description file, pack and upload it. 
+Then waiting for server reply, download and unpack it.
 
-As transport, **AdHocAgent** can use raw **TCP** / **HTTP** or **IMAP**.  
-At the beginning stage of your protocol project, when it changes frequently and getting the generated code faster is important, using raw 
-**TCP** (or **HTTP** if you have to use a proxy) is the most effectively.  
-Later, when your project becomes mature, stabilizes and the confidence in the generated code becomes more important. You can switch to **IMAP** transport, where, 
-in addition to code generation, possible to order testing of the generated code, and yes, it takes a longer time.
-________________________________
-To use **IMAP**, please activate, in your mailbox settings, this transport access option. Recently e-mail providers highly restrict access to their system, so for your mailbox, 
-you have to relax this rule. In gmail, for example, please enter to your account security settings and let access for less secure apps.
+Other function is to convert Protocol Buffers `.proto` files to some sort close to the **AdHoc** protocol description file.
 
-![Capture](https://user-images.githubusercontent.com/29354319/69202440-a0cf1e80-0b7c-11ea-9e52-6c81655a38b4.PNG)
+As transport, **AdHocAgent** can use raw **TCP** / **HTTP**.  
 
-In **AdHocAgent** source directory rename one of the best fit for your e-mail provider `.properties` files in to `client.properties`.
+At the beginning stage of your protocol project, when it changes frequently and getting the generated code faster is important, just ask code generation.  
+Later, when your project becomes mature, stabilizes and the confidence in the generated code becomes more important, in addition to code generation, 
+possible to order testing of the generated code, and yes, it takes a longer time.
+
+In **AdHocAgent** source directory there is the `AdHocAgent.properties` file.
 
 Update it content: 
 
-`server.tcp` option let you point server generator host, its port and protocol ( HTTP, if it starts with `http://`)   
-Set `mail.box` property to your mailbox. **Also it used as user name in **TCP/HTTP** as a transport case.**   
-Some e-mail providers require additional login to connect to their service, provide it with `mail.login` option.  
+`server` option let to point server generator host, port and protocol ( HTTP, if it starts with `http://`)   
+Set `login` property to your identifier.  
 
-Option `description.file.path` should contains path to your project description file, otherwise provide it as the first argument of the command line.   
-**If this path ends with !(exclamation) mark generated code will be tested. Ths option is available with **IMAP** transport only.**   
+Option `description_file_path` contains path to your project description file, **If this path ends with !(exclamation) generated code will be tested.**  
+This path can be provide as argument of the command line.   
+If provided via command line path point to the file with `.proto` extension, this file will be uploaded and converted by server to closest to AdHoc protocol description file format**
 
-The `annotations.directory` point to the directory with 'org', top **AdHoc** [annotations directory](https://github.com/cheblin/AdHoc) inside, 
-same annotations you used to compose the protocol description.
+The `sourcepath`  option contains comma delimited paths to: 
+ * the directory with 'org', top **AdHoc** [annotations directory](https://github.com/cheblin/AdHoc) inside. Same annotations used to compose the protocol description, 
+ * other folders where imported sources are located.
 
-Your mailbox password, if you use **IMAP** transport, you can 
-- put in the `client.properties` file as `mail.password` option
-- provide as the second argument of the **AdHocAgent** command line 
-- enter to the popup textbox dialog, if program run, but cannot find any. 
-
-Ensure [**JDK 8**](https://www.oracle.com/technetwork/java/javase/downloads/index.html) is installed, `javac` is available in console and in the path.   
-This program has one external dependency: [javamail](https://javaee.github.io/javamail/) and need a reference to `javax.mail.jar`.  
+Before run AdHocAgent:
+Ensure [**JDK 8**](https://www.oracle.com/technetwork/java/javase/downloads/index.html) is installed, `javac` is in the path and available in console.   
+Compile **AdHocAgent** by yourself or take ready one jar in the `bin` directory.  
 When compiling **AdHocAgent** you can 
- - embed `client.properties` file inside **JAR** binary or
- - put it next to jar/class or 
- - copy to the current/working directory
+ - embed `AdHocAgent.properties` file inside **JAR** binary
+ - put it next to jar/class or to the current/working directory
  
-If you get **IMAP** connection problem, uncommented `mail.debug = true` option lets you get a full `javamail` connection log. Find details about `mail.debug` in [JavaMail documentation](https://javaee.github.io/javamail/FAQ).  
-_______________________________ 
-Compile **AdHocAgent** by yourself or take ready one jar file in the `bin` directory.  
-After you complete your protocol description file, run **AdHocAgent**
- > `java -jar /path/to/AdHocAgent.jar /path/to/protocol_descriptor.java`  
- `client.properties` settings file should be next to `AdHocAgent.jar`
- 
-it will try to find the description file, recognize the current workflow stage and:
-* compile, parse and check all used in the description names. 
-  * >**Programming languages, `AdHoc` supported, are using a set of reserved words. Using them and '_' _underscore_ , as first/last char of the name, is prohibited.**
-  * >**Packets, enums and channels names should be unique**
-- if the check names phase is passed, the program composes message with the protocol description file inside. If this file version was never sent, upload it to the server.
-- or/and try to receive server reply.
-- if getting the reply, **AdHocAgent** expand generated code in the [current/working directory](https://en.wikipedia.org/wiki/Working_directory) of the **AdHocAgent** process
+After you complete your protocol description file, run **AdHocAgent** with command line:
+ > `java -jar /path/to/AdHocAgent.jar /path/to/protocol_descriptor.java` to generate code only
+
+or
+ > `java -jar /path/to/AdHocAgent.jar /path/to/protocol_descriptor.java!` to generate code with testing 
+
+
+Before upload the description file, **AdHocAgent** recognize the current workflow stage and:  
+* If this file version was never sent: compile, parse and check all used in the description names. 
+  * >**Names that are a keyword of any programming languages, `AdHoc` supported or with `_` (_underscore_) as first/last char is prohibited**
+  * >**Packets, enums and channels names should be unique in project scope**
+  * >**Imported in the project file, packs should have to have predefined unique `id` in project scope**
+  * >**The root project description file packs, without `id` annotation, will be assigned by the server automatically**
+  
+- If the check names phase is passed, the program composes message with file inside and upload it to the server.
+- Then waiting for server reply, receiving, expand generated code in the [current/working directory](https://en.wikipedia.org/wiki/Working_directory) of the **AdHocAgent** process.
+
+> `java -jar /path/to/AdHocAgent.jar /path/to/convert_to_adhoc_format.proto`
+
+**AdHocAgent** will upload Protocol Buffers `.proto` file and receive converted to AdHoc format version
 
 On windows OS, if you create shortcut to run **AdHocAgent**, provide working directory, the place where generated code will be extracted, as shown on th picture.
  
 ![image](https://user-images.githubusercontent.com/29354319/69940309-eb597f00-151c-11ea-922f-1795eccfa796.png)
 
-On our side, when the server receives your specification it will checks their correctness, generates requested source code in specified languages, generate several tests and run them. If all tests passed, compose reply and put inside
-- generated protocol handler code
+When the server receives your specification it will checks their correctness, generates requested source code in specified languages, plus if requested generate several tests and run. 
+If all tests passed, compose the reply with
+- generated protocol handler API code
 - last generated test
 - example of using generated API 
 
