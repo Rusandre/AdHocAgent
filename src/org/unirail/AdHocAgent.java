@@ -100,15 +100,20 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 					
 					
 					if (!CLASS.isEnum() && CLASS.getInterfaces().length == 0)//for Pack declaration classes only
-						if (full_name.startsWith( project_namespace ))//project class
+						if (full_name.startsWith( project_namespace ))//in root project pack class
 						{
 							if (!unique_names.add( simpleName )) wrong( "Pack declaration class < " + full_name + " > name is not unique" );//checking unique_names
 						}
 						else//none project, Lib pack class
 						{
-							Annotation[] anns = CLASS.getAnnotations();//check ID present
+							Annotation[] anns = CLASS.getAnnotations();//imported pack class check ID presently
 							if (anns.length == 0 || !anns[0].annotationType().getName().equals( "id" )) wrong( "Library Pack declaration class < " + full_name + " > have to have predefined unique id annotation." );
 						}
+					
+					String su = CLASS.getSuperclass().getSimpleName();
+					if ((su.equals( "StdProtocol" ) || su.equals( "AdvProtocol" )) && CLASS.getInterfaces().length != 2)
+						wrong( "Interface < " + full_name + " > have to have joint two interfaces." );
+					
 					
 					//and all classes check for prohibited names
 					if (is_prohibited( simpleName )) wrong( "Сlass < " + full_name + " > name is prohibited" );
@@ -154,16 +159,15 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 					
 					int class_decl = get_class_declare( description_src );//class declaration place
 					
-					long t = System.currentTimeMillis();
-					description_src = "package " + project_namespace + ";//" + t + "\n" +//    mark
-					                  description_src.substring( class_decl ) +
-					                  "\n//" + t + "\n";//                                     mark
+					description_src = "package " + project_namespace + ";\n" +
+					                  description_src.substring( class_decl ).trim() + "\n";
+					
 					for (Path path : java_srcs)
 					{
 						String src = new String( Files.readAllBytes( path ), StandardCharsets.UTF_8 );
 						class_decl = get_class_declare( src );
 						
-						description_src += src.substring( class_decl + "public ".length() );//skip public
+						description_src += src.substring( class_decl + "public ".length() ).trim() + "\n";//skip public
 					}
 				}
 				
@@ -174,11 +178,11 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 				os.flush();
 				os.close();
 				
-				Path out = tmp.resolve( file.length() + " " + project );
+				Path out = tmp.resolve( file.length() + "%" + project + (is_testing ? "%" : "") );
 				
 				file.renameTo( out.toFile() );
 				
-				new ProcessBuilder( "jar", "cfM", "jar", out.toString() ).directory( tmp.toFile() ).start().waitFor(); //produce JAR
+				new ProcessBuilder( "jar", "cfM", "jar", out.getFileName().toString() ).directory( tmp.toFile() ).start().waitFor(); //produce JAR
 				
 				
 			} catch (IOException e)
@@ -233,10 +237,10 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 			switch (args.length)
 			{
 				case 0:
-					provided_file_path = Paths.get( props.getProperty( "description_file_path" ).trim() );
+					set_provided_file_path( props.getProperty( "description_file_path" ).trim() );
 					break;
 				case 1:
-					provided_file_path = Paths.get( args[0] );
+					set_provided_file_path( args[0] );
 			}
 			
 			
@@ -248,15 +252,38 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 			final long provided_file_time = provided_file.lastModified();
 			if (System.currentTimeMillis() < provided_file_time) exit( "Provided file " + provided_file_path + " is up-to-date.", 0 );
 			
-			project = props.getProperty( "login" ) + " " + provided_file_time + provided_file_path.getFileName().toString().replace( " ", "_" );
 			
+			project = props.getProperty( "login" ).replace( "%", "_" ) + "%" + provided_file_time + "%" + provided_file_path.getFileName();
 			
-			if (provided_file_path.toFile().canWrite()) send();
+			final BytesSrc request = os -> {
+				os.write( Protocol.Request );
+				os.write( project.getBytes( StandardCharsets.UTF_8 ) );
+			};
+			
+			if (provided_file_path.toFile().canWrite())
+				if (provided_file_path.toString().endsWith( ".proto" ))//proto file conversion
+				{
+					Files.copy( provided_file_path, tmp = Files.createTempDirectory( "ClientAgent" ).resolve( provided_file_path.toFile().length() + "%" + project + (is_testing ? "%" : "") ) );
+					
+					new ProcessBuilder( "jar", "cfM", "jar", tmp.getFileName().toString() ).directory( tmp.getParent().toFile() ).start().waitFor(); //produce JAR
+					tmp        = tmp.getParent();
+					active_src = os -> {
+						os.write( Protocol.File );
+						Files.copy( tmp.resolve( "jar" ), os );
+						provided_file_path.toFile().setWritable( false );//this version of the description file is in process mark
+					};
+				}
+				else
+				{
+					new AdHocAgent( props.getProperty( "sourcepath" ) ); //check
+					active_src = os -> {
+						os.write( Protocol.File );
+						Files.copy( tmp.resolve( "jar" ), os );
+						provided_file_path.toFile().setWritable( false );//this version of the description file is in process mark
+					};
+				}
 			else //file was sent just query result
-				active_src = os -> {
-					os.write( Protocol.ToRequestResult );
-					os.write( project.getBytes( StandardCharsets.UTF_8 ) );
-				};
+				active_src = request;
 			
 			
 			final String server_tcp = props.getProperty( "server" );
@@ -292,7 +319,8 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 						System.out.println( "Will request result in " + wait_sec + " seconds" );
 						Thread.sleep( wait_sec * 1000 );
 					}
-					wait_sec = 0;
+					wait_sec   = 0;
+					active_src = request;
 				}
 			else
 				for (; ; )
@@ -314,7 +342,8 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 						System.out.println( "Will request result in " + wait_sec + " seconds" );
 						Thread.sleep( wait_sec * 1000 );
 					}
-					wait_sec = 0;
+					wait_sec   = 0;
+					active_src = request;
 				}
 			
 		} catch (Exception e)
@@ -323,52 +352,31 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 		}
 	}
 	
-	static void send() throws Exception {
-		if (provided_file_path.endsWith( ".prop" ))
-		{
-			Files.copy( provided_file_path, tmp = Files.createTempDirectory( "ClientAgent" ).resolve( provided_file_path.toFile().length() + " " + project ) );
-			
-			new ProcessBuilder( "jar", "cfM", "jar", tmp.toString() ).directory( tmp.getParent().toFile() ).start().waitFor(); //produce JAR
-			tmp        = tmp.getParent();
-			active_src = os -> {
-				os.write( Protocol.ProtoFile );
-				Files.copy( tmp.resolve( "jar" ), os );
-				provided_file_path.toFile().setWritable( false );//this version of the description file is in process mark
-			};
-		}
-		else
-		{
-			new AdHocAgent( props.getProperty( "sourcepath" ) ); //check
-			active_src = os -> {
-				os.write( Protocol.DescriptorFile );
-				Files.copy( tmp.resolve( "jar" ), os );
-				provided_file_path.toFile().setWritable( false );//this version of the description file is in process mark
-			};
-		}
-	}
-	
 	static int wait_sec = 0;
 	
 	static void receive( InputStream src ) throws Exception {
 		switch (src.read())
 		{
-			case Protocol.NextRequestAfter:
+			case Protocol.Timeout:
 				wait_sec = src.read();
 				break;
-			case Protocol.ReUpload:
-				send();
-				break;
-			case Protocol.UnirailInfo:
-				wait_sec = src.read();
-				Path tmp = Files.createTempDirectory( "ClientAgent" ).resolve( "unirail.info" );
-				extract( src, tmp );
-				System.out.println( "Information from " + tmp );
-				System.out.println( Files.lines( tmp, StandardCharsets.UTF_8 ).collect( Collectors.joining( System.lineSeparator() ) ) );//print unirail.info message
-				break;
-			case Protocol.DescriptorFile:
+			
+			case Protocol.File:
 				extract( src, dest_dir_path );
 				
-				String new_src = new String( Files.readAllBytes( dest_dir_path.resolve( provided_file_path.getFileName() ) ), StandardCharsets.UTF_8 );//from server, updated project source
+				String name = provided_file_path.getFileName().toString();
+				if (name.endsWith( ".proto" ))
+				{
+					final Path path = dest_dir_path.resolve( name.substring( 0, name.length() - 5 ) + "java" );
+					if (!Files.exists( path )) return;
+					provided_file_path.toFile().setWritable( true );
+					exit( "Please find converted file in " + path, 0 );
+				}
+				
+				final Path path = dest_dir_path.resolve( name );
+				if (!Files.exists( path )) return;
+				
+				String new_src = new String( Files.readAllBytes( path ), StandardCharsets.UTF_8 );//from server, updated project source
 				
 				if (new_src.startsWith( "public" ))// file with imports
 				{
@@ -380,7 +388,7 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 				}
 				
 				//backup current version
-				Files.copy( provided_file_path, provided_file_path.getParent().resolve( "prev_" + provided_file_path.getFileName() ), StandardCopyOption.REPLACE_EXISTING );
+				Files.copy( provided_file_path, provided_file_path.getParent().resolve( provided_file_path.getFileName() + "_prev" ), StandardCopyOption.REPLACE_EXISTING );
 				
 				File curr_file = provided_file_path.toFile();
 				
@@ -391,13 +399,8 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 				os.close();
 				curr_file.setLastModified( System.currentTimeMillis() + Integer.MAX_VALUE * 100L ); // successfully updated mark
 				
-				exit( "Please find generated files in " + dest_dir_path + " and previous version backup " + "prev_" + provided_file_path.getFileName(), 0 );
-			
-			case Protocol.ProtoFile:
-				extract( src, dest_dir_path );
-				exit( "Please find converted file in " + dest_dir_path, 0 );
+				exit( "Please find generated files in " + dest_dir_path + " and previous version backup " + provided_file_path.getFileName() + "_prev", 0 );
 		}
-		
 	}
 	
 	static void exit( String banner, int code ) throws Exception {
@@ -418,7 +421,13 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 	
 	private static final Logger LOG = Logger.getLogger( "ClientAgent" );
 	
-	private static Path provided_file_path = null;
+	private static Path    provided_file_path = null;
+	static         boolean is_testing         = false;
+	
+	static final void set_provided_file_path( String path ) {
+		provided_file_path = Paths.get( (is_testing = path.endsWith( "!" )) ? path.substring( 0, path.length() - 1 ) : path );
+		is_testing         = !provided_file_path.endsWith( ".proto" );
+	}
 	
 	private static String project = "";
 	
@@ -438,6 +447,11 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 				FileOutputStream out = new FileOutputStream( file );
 				for (int len; -1 < (len = jar.read( buffer )); ) out.write( buffer, 0, len );
 				
+				if (file.getName().endsWith( "unirail.info" ))
+				{
+					System.out.println( "Information from " + file.toPath() );
+					System.out.println( Files.lines( file.toPath(), StandardCharsets.UTF_8 ).collect( Collectors.joining( System.lineSeparator() ) ) );//print unirail.info message
+				}
 				jar.closeEntry();
 				out.flush();
 				out.close();
@@ -445,7 +459,6 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 		}
 		jar.close();
 	}
-	
 	
 	static Path self_path() throws Exception {
 		Class  context = AdHocAgent.class;
@@ -471,21 +484,14 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 		return classes.find() ? classes.start( 1 ) : -1;
 	}
 	
-	
 	static final Pattern imports_pattern = Pattern.compile( "import\\p{javaIdentifierIgnorable}*\\p{javaWhitespace}+(?:static\\p{javaIdentifierIgnorable}*\\p{javaWhitespace}+)?(\\p{javaJavaIdentifierStart}[\\p{javaJavaIdentifierPart}\\p{javaIdentifierIgnorable}]*(?:\\p{javaWhitespace}*\\.\\p{javaWhitespace}*\\*|(?:\\p{javaWhitespace}*\\.\\p{javaWhitespace}*\\p{javaJavaIdentifierStart}[\\p{javaJavaIdentifierPart}\\p{javaIdentifierIgnorable}]*)+(?:\\p{javaWhitespace}*\\.\\p{javaWhitespace}*\\*)?))\\p{javaWhitespace}*;" );
-	
 	
 	interface Protocol {
 		int
-				DescriptorFile   = 0,
-				ProtoFile        = 2,
-				ToRequestResult  = 1,
-				NextRequestAfter = 3,
-				ReUpload         = 4,
-				UnirailInfo      = 5;
-		
+				File    = 0,
+				Request = 1,
+				Timeout = 2;
 	}
-	
 	
 	static boolean is_prohibited( String name ) {
 		if (name.startsWith( "_" ) || name.endsWith( "_" )) return true;
