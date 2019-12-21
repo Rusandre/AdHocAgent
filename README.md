@@ -151,13 +151,14 @@ class AddressBook {
 ```
 It converts only packs declarations. The resulting packages have to be  distributed among communication interfaces of the AdHoc network. 
 
-On windows OS, if you create shortcut to run **AdHocAgent**, provide working directory, the place where generated code will be extracted, as shown on th picture.
+On windows OS, if you create shortcut to run **AdHocAgent**, provide working directory, the place where generated code will be extracted, as shown on the picture.
  
 ![image](https://user-images.githubusercontent.com/29354319/69940309-eb597f00-151c-11ea-922f-1795eccfa796.png)
 
 When the server receives your specification it will checks their correctness, generates requested source code in specified languages, plus if requested generate several tests and run. 
 If all tests passed, compose the reply with
 - generated protocol handler API code
+- code to simplify export/import data between a network and your data structures
 - last generated test
 - example of using generated API 
 
