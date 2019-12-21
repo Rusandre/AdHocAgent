@@ -2,7 +2,7 @@
 This is source code of the program which checks prepared **AdHoc** protocol description file, pack and upload it. 
 Then waiting for server reply, download and unpack it.
 
-Other function is to convert Protocol Buffers `.proto` files to some sort close to the **AdHoc** protocol description file.
+Other function is to convert Protocol Buffers `.proto` files to some closest to the **AdHoc** protocol description file format.
 
 As transport, **AdHocAgent** can use raw **TCP** / **HTTP**.  
 
@@ -51,7 +51,104 @@ Before upload the description file, **AdHocAgent** recognize the current workflo
 
 > `java -jar /path/to/AdHocAgent.jar /path/to/convert_to_adhoc_format.proto`
 
-**AdHocAgent** will upload Protocol Buffers `.proto` file and receive converted to AdHoc format version
+**AdHocAgent** will upload Protocol Buffers `.proto` file and receive converted to AdHoc format version.
+For example:
+
+```proto
+// See README.txt for information and build instructions.
+//
+// Note: START and END tags are used in comments to define sections used in
+// tutorials.  They are not part of the syntax for Protocol Buffers.
+//
+// To get an in-depth walkthrough of this file and the related examples, see:
+// https://developers.google.com/protocol-buffers/docs/tutorials
+
+// [START declaration]
+syntax = "proto3";
+package tutorial;
+// [END declaration]
+
+// [START java_declaration]
+option java_package = "com.example.tutorial";
+option java_outer_classname = "AddressBookProtos";
+// [END java_declaration]
+
+// [START csharp_declaration]
+option csharp_namespace = "Google.Protobuf.Examples.AddressBook";
+// [END csharp_declaration]
+
+// [START messages]
+message Person {
+  string name = 1;
+  int32 id = 2;  // Unique ID number for this person.
+  string email = 3;
+
+  enum PhoneType {
+    MOBILE = 0;
+    HOME = 1;
+    WORK = 2;
+  }
+
+  message PhoneNumber {
+    string number = 1;
+    PhoneType type = 2;
+  }
+
+  repeated PhoneNumber phones = 4;
+}
+
+// Our address book file is just one of these.
+message AddressBook {
+  repeated Person people = 1;
+}
+// [END messages]
+```
+will be transpiled into
+```java
+package tutorial;
+// [END declaration]
+
+// [START java_declaration]
+
+
+// [END java_declaration]
+
+// [START csharp_declaration]
+
+// [END csharp_declaration]
+
+// [START messages]
+class Person{
+	@__(32767) String name;
+	@I_ int id;// Unique ID number for this person.
+	@__(32767) String email;
+
+	enum PhoneType{
+		final int MOBILE = 0;
+		final int HOME = 1;
+		final int WORK = 2;
+	}
+
+
+	class PhoneNumber{
+		@__(32767) String number;
+		PhoneType type;
+	}
+
+
+	@D(32767)	PhoneNumber phones;
+}
+
+
+// Our address book file is just one of these.
+class AddressBook{
+	@D(32767)	Person people;
+}
+
+// [END messages]
+
+```
+
 
 On windows OS, if you create shortcut to run **AdHocAgent**, provide working directory, the place where generated code will be extracted, as shown on th picture.
  
