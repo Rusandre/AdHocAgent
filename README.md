@@ -51,8 +51,9 @@ Before upload the description file, **AdHocAgent** recognize the current workflo
 
 > `java -jar /path/to/AdHocAgent.jar /path/to/convert_to_adhoc_format.proto`
 
-**AdHocAgent** will upload Protocol Buffers `.proto` file and receive converted to AdHoc format version.
-For example:
+**AdHocAgent** will upload Protocol Buffers `.proto` file and receive converted to AdHoc format version.  
+
+**For example:**
 
 ```proto
 // See README.txt for information and build instructions.
@@ -103,9 +104,10 @@ message AddressBook {
 }
 // [END messages]
 ```
-will be transpiled into
+
+**will be transpiled into**
+
 ```java
-package tutorial;
 // [END declaration]
 
 // [START java_declaration]
@@ -118,37 +120,36 @@ package tutorial;
 // [END csharp_declaration]
 
 // [START messages]
-class Person{
+class Person {
 	@__(32767) String name;
-	@I_ int id;// Unique ID number for this person.
+	@I_        int    id;// Unique ID number for this person.
 	@__(32767) String email;
-
-	enum PhoneType{
+	
+	enum PhoneType {
+		;
 		final int MOBILE = 0;
-		final int HOME = 1;
-		final int WORK = 2;
+		final int HOME   = 1;
+		final int WORK   = 2;
 	}
-
-
-	class PhoneNumber{
+	
+	
+	class PhoneNumber {
 		@__(32767) String number;
 		PhoneType type;
 	}
-
-
-	@D(32767)	PhoneNumber phones;
+	
+	
+	@D(32767) PhoneNumber phones;
 }
 
 
 // Our address book file is just one of these.
-class AddressBook{
-	@D(32767)	Person people;
+class AddressBook {
+	@D(32767) Person people;
 }
-
 // [END messages]
-
 ```
-
+It converts only packs declarations. The resulting packages have to be  distributed among communication interfaces of the AdHoc network. 
 
 On windows OS, if you create shortcut to run **AdHocAgent**, provide working directory, the place where generated code will be extracted, as shown on th picture.
  
