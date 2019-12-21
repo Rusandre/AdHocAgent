@@ -41,9 +41,9 @@ or
 
 Before upload the description file, **AdHocAgent** recognize the current workflow stage and:  
 * If this file version was never sent: compile, parse and check all used in the description names. 
-  * >**Names that are a keyword of any programming languages, `AdHoc` supported or with `_` (_underscore_) as first/last char is prohibited**
+  * >**Names that are a keyword of any programming languages, `AdHoc` supported, or with `_` (_underscore_) as first/last char is prohibited**
   * >**Packets, enums and channels names should be unique in project scope**
-  * >**Channels, by `extends` have to have `StdProtocol` or `AdvProtocol` type and by `implements` joint two communication interfaces**
+  * >**Channels, by `extends` keyword have to have `StdProtocol` or `AdvProtocol` type and by `implements` connect two communication interfaces**
   * >**Imported in the project file, packs should have to have predefined unique `id` in project scope**
   * >**The root project description file packs, without `id` annotation, will be assigned by the server automatically**
   
@@ -54,7 +54,7 @@ Before upload the description file, **AdHocAgent** recognize the current workflo
 
 **AdHocAgent** will upload Protocol Buffers `.proto` file and receive converted to AdHoc format version.  
 
-**For example:**
+**For example `.proto` file:**
 
 ```proto
 // See README.txt for information and build instructions.
