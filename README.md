@@ -2,7 +2,7 @@
 This is source code of the program which checks prepared **AdHoc** protocol description file, pack and upload it. 
 Then waiting for server reply, download and unpack it.
 
-Other function is to convert Protocol Buffers `.proto` files to some closest to the **AdHoc** protocol description file format.
+Other function is to convert Protocol Buffers `.proto` files to some, closest to the **AdHoc** protocol description file format.
 
 As transport, **AdHocAgent** can use raw **TCP** / **HTTP**.  
 

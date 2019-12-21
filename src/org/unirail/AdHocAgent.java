@@ -124,7 +124,7 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 					for (Field fld : CLASS.getDeclaredFields())
 						if (is_prohibited( fld.getName() )) wrong( "Сlass < " + full_name + " > field < " + fld.getName() + " > name is prohibited" );
 				}
-				if (is_wrong) exit( "Something wrong detected", 1 );
+				//////////////if (is_wrong) exit( "Something wrong detected", 1 );
 				
 				//combine parts if they exists in one file
 				
@@ -374,7 +374,7 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 				}
 				
 				final Path path = dest_dir_path.resolve( name );
-				if (!Files.exists( path )) return;
+				if (!Files.exists( path )) exit( "Information received", 2 );
 				
 				String new_src = new String( Files.readAllBytes( path ), StandardCharsets.UTF_8 );//from server, updated project source
 				
@@ -388,6 +388,7 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 				}
 				
 				//backup current version
+				provided_file_path.getParent().resolve( provided_file_path.getFileName() + "_prev" ).toFile().delete();//otherwise java.nio.file.AccessDeniedException can arise
 				Files.copy( provided_file_path, provided_file_path.getParent().resolve( provided_file_path.getFileName() + "_prev" ), StandardCopyOption.REPLACE_EXISTING );
 				
 				File curr_file = provided_file_path.toFile();
