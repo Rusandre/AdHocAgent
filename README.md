@@ -149,7 +149,7 @@ class AddressBook {
 }
 // [END messages]
 ```
-It converts only packs declarations. The resulting packages have to be  distributed among communication interfaces of the AdHoc network. 
+Converted packs declarations have to be distributed among communication interfaces of the AdHoc network. 
 
 On windows OS, if you create shortcut to run **AdHocAgent**, provide working directory, the place where generated code will be extracted, as shown on the picture.
  
