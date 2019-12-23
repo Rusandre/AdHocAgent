@@ -12,7 +12,6 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
-import java.util.List;
 import java.util.jar.JarEntry;
 import java.util.jar.JarInputStream;
 import java.util.logging.Logger;
@@ -51,19 +50,31 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 		{
 			tmp = Files.createTempDirectory( "ClientAgent" );
 			
-			Process proc = Runtime.getRuntime().exec( new String[]{"javac",
-			                                                       "-d",
-			                                                       tmp.toString(),
-			                                                       "-sourcepath",
-			                                                       sourcepath,
-			                                                       "-encoding", "UTF-8",
-			                                                       provided_file_path.toString()} );
-			
-			final BufferedReader br = new BufferedReader( new InputStreamReader( proc.getErrorStream() ) );
-			if (proc.waitFor() != 0)
 			{
-				LOG.warning( br.lines().collect( Collectors.joining( "\n" ) ) );
-				exit( "Compilation error", 7 );
+				ProcessBuilder exec = new ProcessBuilder(
+						"javac",
+						"-d",
+						tmp.toString(),
+						"-sourcepath",
+						sourcepath,
+						"-encoding", "UTF-8",
+						provided_file_path.toString() );
+				exec.redirectErrorStream( true );
+				
+				final Path err = tmp.resolve( "err.log" );
+				final Path out = tmp.resolve( "out.log" );
+				
+				exec.redirectError( err.toFile() );
+				exec.redirectOutput( out.toFile() );
+				
+				if (exec.start().waitFor() != 0)
+				{
+					System.out.write( Files.readAllBytes( err ) ); ;
+					System.out.write( Files.readAllBytes( out ) ); ;
+					exit( "Compilation error", 7 );
+				}
+				err.toFile().delete();
+				out.toFile().delete();
 			}
 			
 			Set<String> unique_names = new HashSet<>();
@@ -85,11 +96,10 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 								if (is_prohibited( str )) wrong( "Package < " + Package + " > part name < " + str + " >  is prohibited" );
 						}
 				);
-				final String description_file_path_str = provided_file_path.toString();
-				String       str                       = description_file_path_str.replace( File.separator, "." );
-				final String name                      = str.substring( 0, str.length() - 5 );//trim .java
+				final String description_file_name = provided_file_path.getFileName().toString();
+				final String name                  =  description_file_name.substring( 0, description_file_name.length() - 5 );//trim .java
 				
-				final String project_namespace = classes.stream().filter( name::endsWith ).findFirst().get();
+				final String root_project = classes.stream().filter( c -> c.endsWith( name ) ).sorted( Comparator.comparingInt( String::length ) ) .findFirst().get();
 				
 				for (String full_name : classes)
 				{
@@ -100,7 +110,7 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 					
 					
 					if (!CLASS.isEnum() && CLASS.getInterfaces().length == 0)//for Pack declaration classes only
-						if (full_name.startsWith( project_namespace ))//in root project pack class
+						if (full_name.startsWith( root_project ))//in root project pack class
 						{
 							if (!unique_names.add( simpleName )) wrong( "Pack declaration class < " + full_name + " > name is not unique" );//checking unique_names
 						}
@@ -124,7 +134,7 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 					for (Field fld : CLASS.getDeclaredFields())
 						if (is_prohibited( fld.getName() )) wrong( "Сlass < " + full_name + " > field < " + fld.getName() + " > name is prohibited" );
 				}
-				//////////////if (is_wrong) exit( "Something wrong detected", 1 );
+				//////////////if (is_wrong) exit( "Something wrong detected. Please fix problems and try again.", 1 );
 				
 				//combine parts if they exists in one file
 				
@@ -149,7 +159,7 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 							
 							if (Files.isRegularFile( p )
 							    && s.endsWith( ".java" )
-							    && !s.equals( description_file_path_str ) //skip descriptor file itself
+							    && !s.equals( description_file_name ) //skip descriptor file itself
 							    && !(s = s.substring( len )).startsWith( meta_path )//skip meta annotations
 							    && classes.contains( s.substring( 0, s.length() - 5 ).replace( File.separator, "." ) ))//used in compilation
 								java_srcs.add( p );
@@ -159,7 +169,7 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 					
 					int class_decl = get_class_declare( description_src );//class declaration place
 					
-					description_src = "package " + project_namespace + ";\n" +
+					description_src = "package " + root_project + ";\n" +
 					                  description_src.substring( class_decl ).trim() + "\n";
 					
 					for (Path path : java_srcs)
@@ -270,7 +280,6 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 					active_src = os -> {
 						os.write( Protocol.File );
 						Files.copy( tmp.resolve( "jar" ), os );
-						provided_file_path.toFile().setWritable( false );//this version of the description file is in process mark
 					};
 				}
 				else
