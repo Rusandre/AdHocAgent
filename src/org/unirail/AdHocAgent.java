@@ -134,7 +134,7 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 					for (Field fld : CLASS.getDeclaredFields())
 						if (is_prohibited( fld.getName() )) wrong( "Сlass < " + full_name + " > field < " + fld.getName() + " > name is prohibited" );
 				}
-				//////////////if (is_wrong) exit( "Something wrong detected. Please fix problems and try again.", 1 );
+				if (is_wrong) exit( "Something wrong detected. Please fix problems and try again.", 1 );
 				
 				//combine parts if they exists in one file
 				
