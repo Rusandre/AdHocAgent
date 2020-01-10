@@ -97,9 +97,9 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 						}
 				);
 				final String description_file_name = provided_file_path.getFileName().toString();
-				final String name                  =  description_file_name.substring( 0, description_file_name.length() - 5 );//trim .java
+				final String name                  = description_file_name.substring( 0, description_file_name.length() - 5 );//trim .java
 				
-				final String root_project = classes.stream().filter( c -> c.endsWith( name ) ).sorted( Comparator.comparingInt( String::length ) ) .findFirst().get();
+				final String root_project = classes.stream().filter( c -> c.endsWith( name ) ).sorted( Comparator.comparingInt( String::length ) ).findFirst().get();
 				
 				for (String full_name : classes)
 				{
@@ -264,42 +264,69 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 			
 			
 			project = props.getProperty( "login" ).replace( "%", "_" ) + "%" + provided_file_time + "%" + provided_file_path.getFileName();
+			final String  server = props.getProperty( "server" );
+			final boolean tcp    = !server.startsWith( "http://" );
 			
-			final BytesSrc request = os -> {
-				os.write( Protocol.Request );
-				os.write( project.getBytes( StandardCharsets.UTF_8 ) );
+			final BytesSrc request = dst -> {
+				final byte bytes[] = project.getBytes( StandardCharsets.UTF_8 );
+				
+				if (tcp) write_len( bytes.length, dst );
+				
+				dst.write( Protocol.Request );
+				dst.write( bytes );
 			};
 			
 			if (provided_file_path.toFile().canWrite())
+			{
 				if (provided_file_path.toString().endsWith( ".proto" ))//proto file conversion
 				{
 					Files.copy( provided_file_path, tmp = Files.createTempDirectory( "ClientAgent" ).resolve( provided_file_path.toFile().length() + "%" + project + (is_testing ? "%" : "") ) );
 					
 					new ProcessBuilder( "jar", "cfM", "jar", tmp.getFileName().toString() ).directory( tmp.getParent().toFile() ).start().waitFor(); //produce JAR
-					tmp        = tmp.getParent();
-					active_src = os -> {
-						os.write( Protocol.File );
-						Files.copy( tmp.resolve( "jar" ), os );
-					};
+					tmp = tmp.getParent();
 				}
-				else
+				else new AdHocAgent( props.getProperty( "sourcepath" ) ); //check
+				
+				
+				active_src = dst -> {
+					Path src = tmp.resolve( "jar" );
+					
+					if (tcp) write_len( (int) src.toFile().length(), dst );
+					
+					dst.write( Protocol.File );
+					Files.copy( src, dst );
+					provided_file_path.toFile().setWritable( false );//this version of the description file is in process mark
+				};
+			}
+			else active_src = request;//file was sent, just query result
+			
+			
+			LOG.info( "Connecting to the " + server );
+			
+			if (tcp)
+				for (; ; )
 				{
-					new AdHocAgent( props.getProperty( "sourcepath" ) ); //check
-					active_src = os -> {
-						os.write( Protocol.File );
-						Files.copy( tmp.resolve( "jar" ), os );
-						provided_file_path.toFile().setWritable( false );//this version of the description file is in process mark
-					};
+					final String[]     parts  = server.split( ":" );
+					final Socket       socket = new Socket( parts[0], Integer.parseInt( parts[1] ) );
+					final OutputStream os     = socket.getOutputStream();
+					
+					LOG.info( "Connected OK" );
+					
+					active_src.push_into( os );
+					os.flush();
+					
+					receive( socket.getInputStream() );
+					os.close();
+					
+					if (0 < wait_sec)
+					{
+						System.out.println( "Will request result in " + wait_sec + " seconds" );
+						Thread.sleep( wait_sec * 1000 );
+					}
+					wait_sec   = 0;
+					active_src = request;
 				}
-			else //file was sent just query result
-				active_src = request;
-			
-			
-			final String server_tcp = props.getProperty( "server" );
-			
-			LOG.info( "Connecting to the " + server_tcp );
-			
-			if (server_tcp.startsWith( "http://" ))
+			else
 				for (; ; )
 				{
 					// proxy settings https://docs.oracle.com/javase/8/docs/api/java/net/doc-files/net-properties.html#Proxies
@@ -307,7 +334,7 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 					//System.setProperty( "http.proxyHost", "127.0.0.1" );
 					//System.setProperty( "http.proxyPort", "1080" );
 					
-					final HttpURLConnection http = (HttpURLConnection) new URL( server_tcp ).openConnection();
+					final HttpURLConnection http = (HttpURLConnection) new URL( server ).openConnection();
 					http.setDoOutput( true );
 					http.addRequestProperty( "User-Agent", "AdHocAgent" );
 					http.addRequestProperty( "Accept", "*/*" );
@@ -331,34 +358,18 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 					wait_sec   = 0;
 					active_src = request;
 				}
-			else
-				for (; ; )
-				{
-					final String[]     parts  = server_tcp.split( ":" );
-					final Socket       socket = new Socket( parts[0], Integer.parseInt( parts[1] ) );
-					final OutputStream os     = socket.getOutputStream();
-					
-					LOG.info( "Connected OK" );
-					
-					active_src.push_into( os );
-					os.flush();
-					
-					receive( socket.getInputStream() );
-					os.close();
-					
-					if (0 < wait_sec)
-					{
-						System.out.println( "Will request result in " + wait_sec + " seconds" );
-						Thread.sleep( wait_sec * 1000 );
-					}
-					wait_sec   = 0;
-					active_src = request;
-				}
+			
 			
 		} catch (Exception e)
 		{
 			e.printStackTrace();
 		}
+	}
+	
+	static final void write_len( int len, OutputStream os ) throws IOException {
+		os.write( len >> 16 );
+		os.write( len >> 8 );
+		os.write( len );
 	}
 	
 	static int wait_sec = 0;
