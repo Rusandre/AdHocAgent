@@ -101,6 +101,7 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 				
 				final String root_project = classes.stream().filter( c -> c.endsWith( name ) ).sorted( Comparator.comparingInt( String::length ) ).findFirst().get();
 				
+				boolean channel_detected = false;
 				for (String full_name : classes)
 				{
 					final Class<?> CLASS = loadClass( full_name );
@@ -119,11 +120,16 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 							Annotation[] anns = CLASS.getAnnotations();//imported pack class check ID presently
 							if (anns.length == 0 || !anns[0].annotationType().getName().equals( "id" )) wrong( "Library Pack declaration class < " + full_name + " > have to have predefined unique id annotation." );
 						}
-					
-					String su = CLASS.getSuperclass().getSimpleName();
-					if ((su.equals( "StdProtocol" ) || su.equals( "AdvProtocol" )) && CLASS.getInterfaces().length != 2)
-						wrong( "Interface < " + full_name + " > have to have joint two interfaces." );
-					
+						
+					if (full_name.startsWith( root_project ))//in root project pack class
+					{
+						final String su = CLASS.getSuperclass().getSimpleName();
+						if ((su.equals( "StdProtocol" ) || su.equals( "AdvProtocol" )))
+						{
+							channel_detected = true;
+							if (CLASS.getInterfaces().length != 2) wrong( "Interface < " + full_name + " > have to have joint two interfaces." );
+						}
+					}
 					
 					//and all classes check for prohibited names
 					if (is_prohibited( simpleName )) wrong( "Сlass < " + full_name + " > name is prohibited" );
@@ -134,6 +140,7 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 					for (Field fld : CLASS.getDeclaredFields())
 						if (is_prohibited( fld.getName() )) wrong( "Сlass < " + full_name + " > field < " + fld.getName() + " > name is prohibited" );
 				}
+				if (!channel_detected) exit( "No communication channels were found.", 1 );
 				if (is_wrong) exit( "Something wrong detected. Please fix problems and try again.", 1 );
 				
 				//combine parts if they exists in one file
@@ -167,17 +174,20 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 						} );
 					}
 					
-					int class_decl = get_class_declare( description_src );//class declaration place
+					int project = project_declaration( description_src );//project declaration place
 					
 					description_src = "package " + root_project + ";\n" +
-					                  description_src.substring( class_decl ).trim() + "\n";
+					                  description_src.substring( project ).trim() + "\n";
 					
 					for (Path path : java_srcs)
 					{
-						String src = new String( Files.readAllBytes( path ), StandardCharsets.UTF_8 );
-						class_decl = get_class_declare( src );
+						String src = new String( Files.readAllBytes( path ), StandardCharsets.UTF_8 ).trim();
+						project = project_declaration( src );
 						
-						description_src += src.substring( class_decl + "public ".length() ).trim() + "\n";//skip public
+						if (src.substring( project ).startsWith( "public " ))
+							description_src += src.substring( project + "public ".length() ).trim() + "\n";//trim public
+						else
+							description_src += src + "\n";
 					}
 				}
 				
@@ -402,7 +412,7 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 				{
 					//getting header from current description file
 					String cur_src = new String( Files.readAllBytes( provided_file_path ), StandardCharsets.UTF_8 );
-					String header  = cur_src.substring( 0, get_class_declare( cur_src ) );//current descriptor header is - code, up from project class declaration position
+					String header  = cur_src.substring( 0, project_declaration( cur_src ) );//current descriptor header is - code, up from project class declaration position
 					
 					new_src = header + new_src;//extracted new source
 				}
@@ -498,11 +508,11 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 	
 	static final Properties props = new Properties();
 	
-	static final Pattern class_declaration_pattern = Pattern.compile( "\\s*(public|private)\\s+class\\s+(\\w+)\\s+((extends\\s+\\w+)|(implements\\s+\\w+( ,\\w+)*))?\\s*\\{" );
+	static final Pattern root_declaration = Pattern.compile( "\\s*(public|private)\\s+interface\\s+(\\w+)\\s+((extends\\s+\\w+)|(implements\\s+\\w+( ,\\w+)*))?\\s*\\{" );
 	
-	static final int get_class_declare( String src ) {
-		Matcher classes = class_declaration_pattern.matcher( src );
-		return classes.find() ? classes.start( 1 ) : -1;
+	static final int project_declaration( String src ) {
+		Matcher position = root_declaration.matcher( src );
+		return position.find() ? position.start( 1 ) : -1;
 	}
 	
 	static final Pattern imports_pattern = Pattern.compile( "import\\p{javaIdentifierIgnorable}*\\p{javaWhitespace}+(?:static\\p{javaIdentifierIgnorable}*\\p{javaWhitespace}+)?(\\p{javaJavaIdentifierStart}[\\p{javaJavaIdentifierPart}\\p{javaIdentifierIgnorable}]*(?:\\p{javaWhitespace}*\\.\\p{javaWhitespace}*\\*|(?:\\p{javaWhitespace}*\\.\\p{javaWhitespace}*\\p{javaJavaIdentifierStart}[\\p{javaJavaIdentifierPart}\\p{javaIdentifierIgnorable}]*)+(?:\\p{javaWhitespace}*\\.\\p{javaWhitespace}*\\*)?))\\p{javaWhitespace}*;" );
