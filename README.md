@@ -158,6 +158,7 @@ On windows OS, if you create shortcut to run **AdHocAgent**, provide working dir
 
 Another option is using PowerShell script to run AdHocAgent and deploy generated files in destination folders.
 
+**RunAdHocAgent.ps1 file content:**
 ```powershell
 $output_dir = $PSScriptRoot + "\gen"
  Start-Process -FilePath java.exe -ArgumentList ( "-jar", "C:\AdHocAgent\bin\AdHocAgent.jar", ($PSScriptRoot + "/path/to/MyProtocolDescriptor.java!") )  -WorkingDirectory $output_dir -Wait
