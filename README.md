@@ -156,11 +156,11 @@ On windows OS, if you create shortcut to run **AdHocAgent**, provide working dir
  
 ![image](https://user-images.githubusercontent.com/29354319/69940309-eb597f00-151c-11ea-922f-1795eccfa796.png)
 
-Another option is using PowerShell script to run AdHocAgent and deploy generated files in destination folders.
+Another option is using PowerShell script to run AdHocAgent and deploy generated files in destination folders. The good news is: [the PowerShell works on any platform](https://docs.microsoft.com/en-us/powershell/scripting/install/installing-powershell-core-on-linux?view=powershell-7)
 
 `RunAdHocAgent.ps1` file content:
 ```powershell
-$output_dir = $PSScriptRoot + "\gen"
+$output_dir = $PSScriptRoot + "\generated"
  Start-Process -FilePath java.exe -ArgumentList ( "-jar", "C:\AdHocAgent\bin\AdHocAgent.jar", ($PSScriptRoot + "/path/to/MyProtocolDescriptor.java!") )  -WorkingDirectory $output_dir -Wait
  Copy-Item  -Path ($output_dir + "\InC\Device\*") -Include("*AdHoc.c", "*AdHoc.h" , "*config_.h", "*Device.c", "*Device.h", "*Utils_.h" ) -Destination "C:\MyProject\src\adhoc" -Force
 ``` 
