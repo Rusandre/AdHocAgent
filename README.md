@@ -164,6 +164,9 @@ $output_dir = $PSScriptRoot + "\generated"
  Start-Process -FilePath java.exe -ArgumentList ( "-jar", "C:\AdHocAgent\bin\AdHocAgent.jar", ($PSScriptRoot + "/path/to/MyProtocolDescriptor.java!") )  -WorkingDirectory $output_dir -Wait
  Copy-Item  -Path ($output_dir + "\InC\Device\*") -Include("*AdHoc.c", "*AdHoc.h" , "*config_.h", "*Device.c", "*Device.h", "*Utils_.h" ) -Destination "C:\MyProject\src\adhoc" -Force
 ``` 
+If you get a problem with running PowerShell script check it policy with command `Get-ExecutionPolicy`. If you get `Restricted` you can change the PowerShell script execution behavior using "Set-ExecutionPolicy".
+
+Run the command `Set-ExecutionPolicy Unrestricted`
 
 When the server receives your specification it will checks their correctness, generates requested source code in specified languages, plus if requested generate several tests and run. 
 If all tests passed, compose the reply with
