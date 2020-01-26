@@ -1,9 +1,38 @@
+// AdHoc protocol - data interchange format and source code generator
+// Copyright 2019 Chikirev Sirguy, Unirail Group. All rights reserved.
+// info@unirail.org
+// https://github.com/cheblin/AdHoc-protocol
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are
+// met:
+//
+//     * Redistributions of source code must retain the above copyright
+// notice, this list of conditions and the following disclaimer.
+//     * Redistributions in binary form must reproduce the above
+// copyright notice, this list of conditions and the following disclaimer
+// in the documentation and/or other materials provided with the
+// distribution.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 package org.unirail;
 
 
 import java.io.*;
 import java.lang.annotation.Annotation;
+import java.lang.reflect.Array;
 import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.net.HttpURLConnection;
 import java.net.Socket;
 import java.net.URL;
@@ -18,24 +47,10 @@ import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
-public class AdHocAgent extends java.security.SecureClassLoader {
+public class AdHocAgent {
 	
 	private static Path tmp;
-	
-	@Override protected Class<?> findClass( String name ) throws ClassNotFoundException {
-		
-		try
-		{
-			final byte[] bytes = Files.readAllBytes( tmp.resolve( name.replace( '.', '/' ) + ".class" ) );
-			return defineClass( name, bytes, 0, bytes.length );
-		} catch (IOException e)
-		{
-			e.printStackTrace();
-		}
-		return null;
-	}
 	
 	private boolean is_wrong = false;
 	
@@ -45,101 +60,78 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 	}
 	
 	
-	private AdHocAgent( String sourcepath ) {
+	private AdHocAgent() {
+		final String classpath = props.getProperty( "classpath" ).replace( ",", File.pathSeparator );
 		try
 		{
 			tmp = Files.createTempDirectory( "ClientAgent" );
+			Compiler comp = new Compiler();
 			
+			comp.addSource( provided_file_path );
+			
+			try
 			{
-				ProcessBuilder exec = new ProcessBuilder(
-						"javac",
-						"-d",
-						tmp.toString(),
-						"-sourcepath",
-						sourcepath,
-						"-encoding", "UTF-8",
-						provided_file_path.toString() );
-				exec.redirectErrorStream( true );
-				
-				final Path err = tmp.resolve( "err.log" );
-				final Path out = tmp.resolve( "out.log" );
-				
-				exec.redirectError( err.toFile() );
-				exec.redirectOutput( out.toFile() );
-				
-				if (exec.start().waitFor() != 0)
-				{
-					System.out.write( Files.readAllBytes( err ) ); ;
-					System.out.write( Files.readAllBytes( out ) ); ;
-					exit( "Compilation error", 7 );
-				}
-				err.toFile().delete();
-				out.toFile().delete();
+				comp.compile( false, "-classpath", classpath, "-encoding", "UTF-8" );
+			} catch (Exception e)
+			{
+				System.out.println( "Please check that:" +
+				                    "\n\t provided protocol description files are in UTF-8 encoding" +
+				                    "\n\t path to imported files are register with classpath value of AdHocAgent.properties" );
+				throw e;
 			}
 			
 			Set<String> unique_names = new HashSet<>();
 			
-			try (Stream<Path> walk = Files.walk( tmp ))
+			try
 			{
 				final String meta_path = "org" + File.separator + "unirail" + File.separator + "AdHoc";
-				final int    tmp_len   = tmp.toString().length() + 1;
-				final String skip_meta = tmp.resolve( meta_path ).toString();
 				
-				final Set<String> classes = walk.filter( p -> Files.isRegularFile( p ) && !p.toString().startsWith( skip_meta ) ) //skip org/unirail/AdHoc/ meta namespace
-						                            .map( p -> p.toString().substring( tmp_len ).replace( ".class", "" ).replace( File.separator, "." ) ).collect( Collectors.toSet() );
-				
-				//checking prohibited part name in namespaces
-				classes.stream().map( full_name -> full_name.substring( 0, full_name.lastIndexOf( '.' ) ) ).distinct().forEach(
-						Package ->
-						{
-							for (String str : Package.split( "\\." ))
-								if (is_prohibited( str )) wrong( "Package < " + Package + " > part name < " + str + " >  is prohibited" );
-						}
-				);
 				final String description_file_name = provided_file_path.getFileName().toString();
-				final String name                  = description_file_name.substring( 0, description_file_name.length() - 5 );//trim .java
+				final String name                  = "." + description_file_name.substring( 0, description_file_name.length() - 5 );//trim .java
 				
-				final String root_project = classes.stream().filter( c -> c.endsWith( name ) ).sorted( Comparator.comparingInt( String::length ) ).findFirst().get();
+				final Set<String> classes      = comp.binaries.keySet();
+				final String      root_project = classes.stream().filter( c -> c.endsWith( name ) ).min( Comparator.comparingInt( String::length ) ).get();
 				
 				boolean channel_detected = false;
 				for (String full_name : classes)
-				{
-					final Class<?> CLASS = loadClass( full_name );
-					
-					String simpleName = CLASS.getSimpleName();
-					if (CLASS.isInterface()) continue;//just skip
-					
-					
-					if (!CLASS.isEnum() && CLASS.getInterfaces().length == 0)//for Pack declaration classes only
-						if (full_name.startsWith( root_project ))//in root project pack class
+					if (!full_name.startsWith( "org.unirail.AdHoc" ))
+					{
+						for (String str : full_name.replace( "$", "." ).split( "\\." )) if (is_prohibited( str )) wrong( "Package < " + full_name + " > part name < " + str + " >  is prohibited" );
+						
+						final Class<?> CLASS = comp.loadClass( full_name );
+						
+						if (CLASS.isInterface()) continue;//just skip
+						
+						
+						if (!CLASS.isEnum() && CLASS.getInterfaces().length == 0)//Pack declaration
+							if (full_name.startsWith( root_project ) && full_name.contains( "$" ))//pack in root project
+							{
+								
+								if (!unique_names.add( CLASS.getSimpleName() ))
+									wrong( "Pack declaration class < " + full_name + " > name < " + CLASS.getSimpleName() + " > is not unique" );//checking unique_names
+							}
+							else//pack in imported Lib
+							{
+								Annotation[] anns = CLASS.getAnnotations();//imported pack class check ID presently
+								if (anns.length == 0 || !anns[0].annotationType().getName().equals( "org.unirail.AdHoc.id" ))
+									wrong( "Library (imported project) Packs < " + full_name + " > have to have predefined unique id annotation." );
+							}
+						
+						//check channel
+						if (full_name.startsWith( root_project ))//in root project class
 						{
-							if (!unique_names.add( simpleName )) wrong( "Pack declaration class < " + full_name + " > name is not unique" );//checking unique_names
-						}
-						else//none project, Lib pack class
-						{
-							Annotation[] anns = CLASS.getAnnotations();//imported pack class check ID presently
-							if (anns.length == 0 || !anns[0].annotationType().getName().equals( "id" )) wrong( "Library Pack declaration class < " + full_name + " > have to have predefined unique id annotation." );
+							final String su = CLASS.getSuperclass().getSimpleName();
+							if ((su.equals( "StdProtocol" ) || su.equals( "AdvProtocol" )))
+							{
+								channel_detected = true;
+								if (CLASS.getInterfaces().length != 2) wrong( "Interface < " + full_name + " > have to have joint two interfaces." );
+							}
 						}
 						
-					if (full_name.startsWith( root_project ))//in root project pack class
-					{
-						final String su = CLASS.getSuperclass().getSimpleName();
-						if ((su.equals( "StdProtocol" ) || su.equals( "AdvProtocol" )))
-						{
-							channel_detected = true;
-							if (CLASS.getInterfaces().length != 2) wrong( "Interface < " + full_name + " > have to have joint two interfaces." );
-						}
+						checkFields( full_name, CLASS, CLASS.getFields() );
+						checkFields( full_name, CLASS, CLASS.getDeclaredFields() );
+						
 					}
-					
-					//and all classes check for prohibited names
-					if (is_prohibited( simpleName )) wrong( "Сlass < " + full_name + " > name is prohibited" );
-					
-					for (Field fld : CLASS.getFields())
-						if (is_prohibited( fld.getName() )) wrong( "Сlass < " + full_name + " > field < " + fld.getName() + " > name is prohibited" );
-					
-					for (Field fld : CLASS.getDeclaredFields())
-						if (is_prohibited( fld.getName() )) wrong( "Сlass < " + full_name + " > field < " + fld.getName() + " > name is prohibited" );
-				}
 				if (!channel_detected) exit( "No communication channels were found.", 1 );
 				if (is_wrong) exit( "Something wrong detected. Please fix problems and try again.", 1 );
 				
@@ -157,7 +149,7 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 				if (process_imports)//descriptor file has some external dependencies. let gather all in one file before upload
 				{
 					List<Path> java_srcs = new ArrayList<>();//list of used in compilation source files
-					for (String dir : sourcepath.split( File.pathSeparator ))
+					for (String dir : classpath.split( File.pathSeparator ))
 					{
 						final int len = dir.length() + 1;
 						
@@ -191,6 +183,8 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 					}
 				}
 				
+				if (const_info != "") description_src += "//@#$%^&*\n" + const_info;
+				
 				File file = tmp.resolve( project ).toFile();//temp name, before know real file length
 				
 				OutputStreamWriter os = new OutputStreamWriter( new FileOutputStream( file ), StandardCharsets.UTF_8 );
@@ -198,7 +192,7 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 				os.flush();
 				os.close();
 				
-				Path out = tmp.resolve( file.length() + "%" + project + (is_testing ? "%" : "") );
+				Path out = tmp.resolve( file.length() + "@" + project + (is_testing ? "@" : "") );
 				
 				file.renameTo( out.toFile() );
 				
@@ -215,10 +209,63 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 		}
 	}
 	
-	static BytesSrc active_src = null;
+	private String const_info = "";
+	
+	private void checkFields( String full_name, Class CLASS, Field[] flds ) {
+		Object instance = null;
+		
+		if (CLASS.isEnum()) flds = Arrays.copyOf( flds, flds.length - 1 );//skip enum $VALUES synthetic field
+		
+		for (Field fld : flds)
+			try
+			{
+				final Class<?> T = fld.getType();
+				
+				if (is_prohibited( fld.getName() )) wrong( "Сlass < " + full_name + " > field < " + fld.getName() + " > name is prohibited" );
+				
+				if (T.isMemberClass()) continue;
+				
+				if ((fld.getModifiers() & Modifier.STATIC) != 0 && (fld.getModifiers() & Modifier.FINAL) != 0)
+				{
+					if (T == String.class)
+					{
+						fld.setAccessible( true );
+						const_info += "//" + fld.getName() + "\t" + (fld.get( null ) == null ? "null" : "\"" + fld.get( null ) + "\"") + "\t" + full_name.replace( "$", "." ) + "\n";
+					}
+					else if (T.isPrimitive())
+					{
+						fld.setAccessible( true );
+						const_info += "//" + fld.getName() + "\t" + fld.get( null ) + "\t" + full_name.replace( "$", "." ) + "\n";
+					}
+					else if (T.isArray())
+					{
+						fld.setAccessible( true );
+						if (instance == null) instance = CLASS.newInstance();
+						Object array = fld.get( instance );
+						String str   = "";
+						if (Array.get( array, 0 ).getClass() == String.class)
+							for (int i = 0, len = Array.getLength( array ); i < len; i++)
+							     str += ", " + (Array.get( array, i ) == null ? "null" : "\"" + Array.get( array, i ) + "\"");
+						else
+							for (int i = 0, len = Array.getLength( array ); i < len; i++)
+							     str += ", " + Array.get( array, i );
+						
+						const_info += "//" + fld.getName() + "\t{" + str.substring( 1 ) + "}\t" + full_name.replace( "$", "." ) + "\n";
+					}
+				}
+				else if ((fld.getModifiers() & Modifier.STATIC) != 0) wrong( "Pack < " + full_name + " >  static field < " + fld.getName() + " > should be declared as final" );
+				else if ((fld.getModifiers() & Modifier.FINAL) != 0) wrong( "Pack < " + full_name + " >  final field < " + fld.getName() + " > should be declared as static" );
+				
+			} catch (Exception e)
+			{
+				e.printStackTrace();
+			}
+	}
+	
+	static BytesSrc bytes_src = null;
 	
 	interface BytesSrc {
-		void push_into( OutputStream dst ) throws Exception;
+		void push_bytes_into( OutputStream dst ) throws Exception;
 	}
 	
 	public static void main( String[] args ) {
@@ -272,43 +319,24 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 			final long provided_file_time = provided_file.lastModified();
 			if (System.currentTimeMillis() < provided_file_time) exit( "Provided file " + provided_file_path + " is up-to-date.", 0 );
 			
+			dest_dir_path.resolve( info_file ).toFile().delete();//delete old info file
+			dest_dir_path.resolve( provided_file_path.getFileName().toString() ).toFile().delete();//delete old description file if exists
 			
-			project = props.getProperty( "login" ).replace( "%", "_" ) + "%" + provided_file_time + "%" + provided_file_path.getFileName();
-			final String  server = props.getProperty( "server" );
-			final boolean tcp    = !server.startsWith( "http://" );
+			project = props.getProperty( "login" ).replace( "@", "_|_" ) + "@" + provided_file_time + "@" + provided_file_path.getFileName();
+			final byte[]  project_string_bytes = project.getBytes( StandardCharsets.UTF_8 );
 			
-			final BytesSrc request = dst -> {
-				final byte bytes[] = project.getBytes( StandardCharsets.UTF_8 );
-				
-				if (tcp) write_len( bytes.length, dst );
-				
+			final String  server               = props.getProperty( "server" );
+			final boolean tcp                  = !server.startsWith( "http://" );
+			
+			final BytesSrc query_result = dst -> {//query the result by project name
+				if (tcp) write_len( project_string_bytes.length, dst );
 				dst.write( Protocol.Request );
-				dst.write( bytes );
+				dst.write( project_string_bytes );
 			};
 			
-			if (provided_file_path.toFile().canWrite())
-			{
-				if (provided_file_path.toString().endsWith( ".proto" ))//proto file conversion
-				{
-					Files.copy( provided_file_path, tmp = Files.createTempDirectory( "ClientAgent" ).resolve( provided_file_path.toFile().length() + "%" + project + (is_testing ? "%" : "") ) );
-					
-					new ProcessBuilder( "jar", "cfM", "jar", tmp.getFileName().toString() ).directory( tmp.getParent().toFile() ).start().waitFor(); //produce JAR
-					tmp = tmp.getParent();
-				}
-				else new AdHocAgent( props.getProperty( "sourcepath" ) ); //check
-				
-				
-				active_src = dst -> {
-					Path src = tmp.resolve( "jar" );
-					
-					if (tcp) write_len( (int) src.toFile().length(), dst );
-					
-					dst.write( Protocol.File );
-					Files.copy( src, dst );
-					provided_file_path.toFile().setWritable( false );//this version of the description file is in process mark
-				};
-			}
-			else active_src = request;//file was sent, just query result
+			if (provided_description_file_was_never_send()) upload_provided_file( tcp );
+			else //file was sent, just query result
+				bytes_src = query_result;
 			
 			
 			LOG.info( "Connecting to the " + server );
@@ -322,19 +350,19 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 					
 					LOG.info( "Connected OK" );
 					
-					active_src.push_into( os );
+					bytes_src.push_bytes_into( os );
 					os.flush();
 					
-					receive( socket.getInputStream() );
+					receiving( socket.getInputStream() );
 					os.close();
 					
-					if (0 < wait_sec)
+					if (wait_seconds == 0) //server ask to re-upload the job
+						upload_provided_file( true );
+					else
 					{
-						System.out.println( "Will request result in " + wait_sec + " seconds" );
-						Thread.sleep( wait_sec * 1000 );
+						waiting_for_result();
+						bytes_src = query_result;
 					}
-					wait_sec   = 0;
-					active_src = request;
 				}
 			else
 				for (; ; )
@@ -354,41 +382,81 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 					
 					LOG.info( "Connected OK" );
 					
-					active_src.push_into( os );
+					bytes_src.push_bytes_into( os );
 					os.flush();
 					
-					receive( http.getInputStream() );
+					receiving( http.getInputStream() );
 					os.close();
 					
-					if (0 < wait_sec)
+					if (wait_seconds == 0) //server ask to re-upload the job
+						upload_provided_file( false );
+					else
 					{
-						System.out.println( "Will request result in " + wait_sec + " seconds" );
-						Thread.sleep( wait_sec * 1000 );
+						waiting_for_result();
+						bytes_src = query_result;
 					}
-					wait_sec   = 0;
-					active_src = request;
 				}
-			
-			
 		} catch (Exception e)
 		{
 			e.printStackTrace();
+			try
+			{
+				exit("",12);
+			} catch (Exception ex)
+			{
+				ex.printStackTrace();
+			}
 		}
 	}
 	
-	static final void write_len( int len, OutputStream os ) throws IOException {
+	
+	private static void upload_provided_file( boolean tcp ) throws Exception {
+		if (provided_file_path.toString().endsWith( ".proto" ))//proto file conversion job
+		{
+			Files.copy( provided_file_path, tmp = Files.createTempDirectory( "ClientAgent" ).resolve( provided_file_path.toFile().length() + "@" + project + (is_testing ? "@" : "") ) );
+			
+			new ProcessBuilder( "jar", "cfM", "jar", tmp.getFileName().toString() ).directory( tmp.getParent().toFile() ).start().waitFor(); //produce JAR
+			tmp = tmp.getParent();
+		}
+		else new AdHocAgent(); //process  description file
+		
+		
+		bytes_src = dst -> {
+			Path src = tmp.resolve( "jar" );
+			
+			if (tcp) write_len( (int) src.toFile().length(), dst );//write out file length
+			
+			dst.write( Protocol.File );//write out request type
+			Files.copy( src, dst );//write out file content
+			provided_file_path.toFile().setWritable( false );//this version of the description file is in process mark
+		};
+	}
+	
+	private static void write_len( int len, OutputStream os ) throws IOException {
 		os.write( len >> 16 );
 		os.write( len >> 8 );
 		os.write( len );
 	}
 	
-	static int wait_sec = 0;
+	private static void waiting_for_result() throws InterruptedException {
+		while (0 < wait_seconds--)
+		{
+			String msg = "Query result in " + wait_seconds + " seconds.";
+			System.out.print( msg );
+			Thread.sleep( 1000 );
+			for (int i = msg.length(); 0 < i; i--) System.out.print( "\b" );
+		}
+	}
 	
-	static void receive( InputStream src ) throws Exception {
+	private static boolean provided_description_file_was_never_send() {return provided_file_path.toFile().canWrite(); }
+	
+	private static int wait_seconds = 0;
+	
+	private static void receiving( InputStream src ) throws Exception {
 		switch (src.read())
 		{
 			case Protocol.Timeout:
-				wait_sec = src.read();
+				wait_seconds = src.read();
 				break;
 			
 			case Protocol.File:
@@ -402,9 +470,9 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 					provided_file_path.toFile().setWritable( true );
 					exit( "Please find converted file in " + path, 0 );
 				}
-				
+				if (Files.exists( dest_dir_path.resolve( info_file ) )) LOG.info( "Information received" );
 				final Path path = dest_dir_path.resolve( name );
-				if (!Files.exists( path )) exit( "Information received", 2 );
+				if (!Files.exists( path )) exit( "Generated code is not received", 2 );
 				
 				String new_src = new String( Files.readAllBytes( path ), StandardCharsets.UTF_8 );//from server, updated project source
 				
@@ -439,8 +507,6 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 			LOG.info( banner );
 		else
 			LOG.warning( banner );
-		
-		Thread.sleep( 1000 );
 		
 		LOG.info( "Press ENTER to exit" );
 		System.in.read();
@@ -478,10 +544,10 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 				FileOutputStream out = new FileOutputStream( file );
 				for (int len; -1 < (len = jar.read( buffer )); ) out.write( buffer, 0, len );
 				
-				if (file.getName().endsWith( "unirail.info" ))
+				if (file.getName().endsWith( info_file ))
 				{
 					System.out.println( "Information from " + file.toPath() );
-					System.out.println( Files.lines( file.toPath(), StandardCharsets.UTF_8 ).collect( Collectors.joining( System.lineSeparator() ) ) );//print unirail.info message
+					System.out.println( Files.lines( file.toPath(), StandardCharsets.UTF_8 ).collect( Collectors.joining( System.lineSeparator() ) ) );//print info message
 				}
 				jar.closeEntry();
 				out.flush();
@@ -506,7 +572,8 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 		                                     uri.substring( "file:/".length() ), Charset.defaultCharset().name() ) );
 	}
 	
-	static final Properties props = new Properties();
+	static final String     info_file = "unirail.info";
+	static final Properties props     = new Properties();
 	
 	static final Pattern root_declaration = Pattern.compile( "\\s*(public|private)\\s+interface\\s+(\\w+)\\s+((extends\\s+\\w+)|(implements\\s+\\w+( ,\\w+)*))?\\s*\\{" );
 	
@@ -568,6 +635,7 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 			case "dynamic_cast":
 			case "each":
 			case "eval":
+			case "Error":
 			case "event":
 			case "expect":
 			case "explicit":
@@ -703,6 +771,7 @@ public class AdHocAgent extends java.security.SecureClassLoader {
 			case "where":
 			case "with":
 			case "yield":
+				
 				return true;
 		}
 		return false;

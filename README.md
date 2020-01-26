@@ -21,9 +21,9 @@ Option `description_file_path` contains path to your project description file, *
 This path can be provide as argument of the command line.   
 If provided via command line path point to the file with `.proto` extension, this file will be uploaded and converted by server to closest to AdHoc protocol description file format**
 
-The `sourcepath`  option contains comma delimited paths to: 
+The `classpath`  option contains **',' comma delimited paths** to: 
  * the directory with `org`, top **AdHoc** [annotations directory](https://github.com/cheblin/AdHoc) inside. Same annotations used to compose the protocol description, 
- * other folders where imported sources are located.
+ * other folders where **imported sources** are located.
 
 Before run AdHocAgent:
 Ensure [**JDK 8**](https://www.oracle.com/technetwork/java/javase/downloads/index.html) is installed, `javac` is in the path and available in console.   
