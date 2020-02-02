@@ -262,7 +262,7 @@ public class AdHocAgent {
 			}
 	}
 	
-	static BytesSrc bytes_src = null;
+	private static BytesSrc bytes_src = null;
 	
 	interface BytesSrc {
 		void push_bytes_into( OutputStream dst ) throws Exception;
@@ -272,9 +272,8 @@ public class AdHocAgent {
 		try
 		{
 			{
-				final Path self       = self_path();
-				Path       props_path = self.getParent().resolve( "AdHocAgent.properties" );
-				LOG.info( "Trying to use " + props_path );// next to program binary
+				Path props_path = dest_dir_path.resolve( "AdHocAgent.properties" );
+				LOG.info( "Trying to use " + props_path );//in the current working dir
 				if (Files.exists( props_path ))
 				{
 					LOG.info( "Using " + props_path );
@@ -282,8 +281,9 @@ public class AdHocAgent {
 				}
 				else
 				{
-					props_path = dest_dir_path.resolve( "AdHocAgent.properties" );
-					LOG.info( "Trying to use " + props_path );//in the current working dir
+					final Path self = self_path();
+					props_path = self.getParent().resolve( "AdHocAgent.properties" );
+					LOG.info( "Trying to use " + props_path );// next to program binary
 					if (Files.exists( props_path ))
 					{
 						LOG.info( "Using " + props_path );
@@ -323,10 +323,10 @@ public class AdHocAgent {
 			dest_dir_path.resolve( provided_file_path.getFileName().toString() ).toFile().delete();//delete old description file if exists
 			
 			project = props.getProperty( "login" ).replace( "@", "_|_" ) + "@" + provided_file_time + "@" + provided_file_path.getFileName();
-			final byte[]  project_string_bytes = project.getBytes( StandardCharsets.UTF_8 );
+			final byte[] project_string_bytes = project.getBytes( StandardCharsets.UTF_8 );
 			
-			final String  server               = props.getProperty( "server" );
-			final boolean tcp                  = !server.startsWith( "http://" );
+			final String  server = props.getProperty( "server" );
+			final boolean tcp    = !server.startsWith( "http://" );
 			
 			final BytesSrc query_result = dst -> {//query the result by project name
 				if (tcp) write_len( project_string_bytes.length, dst );
@@ -401,7 +401,7 @@ public class AdHocAgent {
 			e.printStackTrace();
 			try
 			{
-				exit("",12);
+				exit( "", 12 );
 			} catch (Exception ex)
 			{
 				ex.printStackTrace();
@@ -502,7 +502,7 @@ public class AdHocAgent {
 		}
 	}
 	
-	static void exit( String banner, int code ) throws Exception {
+	private static void exit( String banner, int code ) throws Exception {
 		if (code == 0)
 			LOG.info( banner );
 		else
@@ -519,9 +519,9 @@ public class AdHocAgent {
 	private static final Logger LOG = Logger.getLogger( "ClientAgent" );
 	
 	private static Path    provided_file_path = null;
-	static         boolean is_testing         = false;
+	private static boolean is_testing         = false;
 	
-	static final void set_provided_file_path( String path ) {
+	private static  void set_provided_file_path( String path ) {
 		provided_file_path = Paths.get( (is_testing = path.endsWith( "!" )) ? path.substring( 0, path.length() - 1 ) : path );
 		is_testing         = !provided_file_path.endsWith( ".proto" );
 	}
@@ -557,7 +557,7 @@ public class AdHocAgent {
 		jar.close();
 	}
 	
-	static Path self_path() throws Exception {
+	private static Path self_path() throws Exception {//the program binary path
 		Class  context = AdHocAgent.class;
 		String classFileName;
 		{
@@ -572,17 +572,17 @@ public class AdHocAgent {
 		                                     uri.substring( "file:/".length() ), Charset.defaultCharset().name() ) );
 	}
 	
-	static final String     info_file = "unirail.info";
-	static final Properties props     = new Properties();
+	private static final String     info_file = "unirail.info";
+	private static final Properties props     = new Properties();
 	
-	static final Pattern root_declaration = Pattern.compile( "\\s*(public|private)\\s+interface\\s+(\\w+)\\s+((extends\\s+\\w+)|(implements\\s+\\w+( ,\\w+)*))?\\s*\\{" );
+	private static final Pattern root_declaration = Pattern.compile( "\\s*(public|private)\\s+interface\\s+(\\w+)\\s+((extends\\s+\\w+)|(implements\\s+\\w+( ,\\w+)*))?\\s*\\{" );
 	
-	static final int project_declaration( String src ) {
+	private static  int project_declaration( String src ) {
 		Matcher position = root_declaration.matcher( src );
 		return position.find() ? position.start( 1 ) : -1;
 	}
 	
-	static final Pattern imports_pattern = Pattern.compile( "import\\p{javaIdentifierIgnorable}*\\p{javaWhitespace}+(?:static\\p{javaIdentifierIgnorable}*\\p{javaWhitespace}+)?(\\p{javaJavaIdentifierStart}[\\p{javaJavaIdentifierPart}\\p{javaIdentifierIgnorable}]*(?:\\p{javaWhitespace}*\\.\\p{javaWhitespace}*\\*|(?:\\p{javaWhitespace}*\\.\\p{javaWhitespace}*\\p{javaJavaIdentifierStart}[\\p{javaJavaIdentifierPart}\\p{javaIdentifierIgnorable}]*)+(?:\\p{javaWhitespace}*\\.\\p{javaWhitespace}*\\*)?))\\p{javaWhitespace}*;" );
+	private static final Pattern imports_pattern = Pattern.compile( "import\\p{javaIdentifierIgnorable}*\\p{javaWhitespace}+(?:static\\p{javaIdentifierIgnorable}*\\p{javaWhitespace}+)?(\\p{javaJavaIdentifierStart}[\\p{javaJavaIdentifierPart}\\p{javaIdentifierIgnorable}]*(?:\\p{javaWhitespace}*\\.\\p{javaWhitespace}*\\*|(?:\\p{javaWhitespace}*\\.\\p{javaWhitespace}*\\p{javaJavaIdentifierStart}[\\p{javaJavaIdentifierPart}\\p{javaIdentifierIgnorable}]*)+(?:\\p{javaWhitespace}*\\.\\p{javaWhitespace}*\\*)?))\\p{javaWhitespace}*;" );
 	
 	interface Protocol {
 		int
@@ -591,7 +591,7 @@ public class AdHocAgent {
 				Timeout = 2;
 	}
 	
-	static boolean is_prohibited( String name ) {
+	private static boolean is_prohibited( String name ) {
 		if (name.startsWith( "_" ) || name.endsWith( "_" )) return true;
 		switch (name)
 		{
