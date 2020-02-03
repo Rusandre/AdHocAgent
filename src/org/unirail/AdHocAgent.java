@@ -61,7 +61,24 @@ public class AdHocAgent {
 	
 	
 	private AdHocAgent() {
-		final String classpath = props.getProperty( "classpath" ).replace( ",", File.pathSeparator );
+		String classpath = "";
+		{
+			for (String path : props.getProperty( "classpath" ).split( "," ))
+				try
+				{
+					File file = new File( path.trim() );
+					if (!file.exists()) exit( "Check the < classpath > option of the provided AdHocAgent.properties file." + path + "  (" + file.getCanonicalPath() + ")  is not exists.", -99 );
+					classpath += File.pathSeparator + file.getCanonicalPath();
+				} catch (IOException e)
+				{
+					e.printStackTrace();
+					
+					exit( "Check the < classpath > option of the provider AdHocAgent.properties file." + path + " is not exists.", -99 );
+				}
+		}
+		
+		if (!classpath.isEmpty()) classpath = classpath.substring( 1 );
+		
 		try
 		{
 			tmp = Files.createTempDirectory( "ClientAgent" );
@@ -84,7 +101,6 @@ public class AdHocAgent {
 			
 			try
 			{
-				final String meta_path = "org" + File.separator + "unirail" + File.separator + "AdHoc";
 				
 				final String description_file_name = provided_file_path.getFileName().toString();
 				final String name                  = "." + description_file_name.substring( 0, description_file_name.length() - 5 );//trim .java
@@ -143,11 +159,13 @@ public class AdHocAgent {
 				boolean       process_imports = false;
 				final Matcher imports         = imports_pattern.matcher( description_src );
 				while (imports.find() &&
-				       !(process_imports = !imports.group( 1 ).replaceAll( "[\\p{javaWhitespace}\\p{javaIdentifierIgnorable}]", "" ).startsWith( "org.unirail.AdHoc" ))
+				       !(process_imports = !imports.group( 1 ).replaceAll( "[\\p{javaWhitespace}\\p{javaIdentifierIgnorable}]", "" ).startsWith( "org.unirail.AdHoc." ))
 				) {}
 				
 				if (process_imports)//descriptor file has some external dependencies. let gather all in one file before upload
 				{
+					final String meta_path = "org" + File.separator + "unirail" + File.separator + "AdHoc" + File.separator;
+					
 					List<Path> java_srcs = new ArrayList<>();//list of used in compilation source files
 					for (String dir : classpath.split( File.pathSeparator ))
 					{
@@ -212,10 +230,11 @@ public class AdHocAgent {
 	private String const_info = "";
 	
 	private void checkFields( String full_name, Class CLASS, Field[] flds ) {
-		Object instance = null;
+		if (flds.length == 0) return;
 		
 		if (CLASS.isEnum()) flds = Arrays.copyOf( flds, flds.length - 1 );//skip enum $VALUES synthetic field
 		
+		Object instance = null;
 		for (Field fld : flds)
 			try
 			{
@@ -281,24 +300,28 @@ public class AdHocAgent {
 				}
 				else
 				{
-					final Path self = self_path();
+					String classFileName;//the program binary path
+					{
+						final String name = AdHocAgent.class.getName();
+						final int    idx  = name.lastIndexOf( '.' );
+						classFileName = (idx == -1 ? name : name.substring( idx + 1 )) + ".class";
+					}
+					
+					final String uri = AdHocAgent.class.getResource( classFileName ).toString();
+					final Path self = Paths.get( URLDecoder.decode( uri.startsWith( "jar:file:/" ) ?
+					                                                uri.substring( "jar:file:/".length(), uri.indexOf( '!' ) ) :
+					                                                uri.substring( "file:/".length() ), Charset.defaultCharset().name() ) );
 					props_path = self.getParent().resolve( "AdHocAgent.properties" );
+					
 					LOG.info( "Trying to use " + props_path );// next to program binary
 					if (Files.exists( props_path ))
 					{
 						LOG.info( "Using " + props_path );
 						props.load( Files.newBufferedReader( props_path ) );
 					}
-					else if (self.endsWith( ".jar" ))//inside jar
-					{
-						LOG.info( "Trying to use AdHocAgent.properties inside " + self );
-						final InputStream is = AdHocAgent.class.getResourceAsStream( "/AdHocAgent.properties" );
-						if (is == null) exit( "File AdHocAgent.properties inside " + self + " is not found.", 1 );
-						LOG.info( "Using AdHocAgent.properties inside " + self );
-						props.load( is );
-					}
 					else exit( "AdHocAgent.properties file is not found", 1 );
 				}
+				
 			}
 			
 			switch (args.length)
@@ -460,7 +483,7 @@ public class AdHocAgent {
 				break;
 			
 			case Protocol.File:
-				extract( src, dest_dir_path );
+				extract( src );
 				
 				String name = provided_file_path.getFileName().toString();
 				if (name.endsWith( ".proto" ))
@@ -502,14 +525,18 @@ public class AdHocAgent {
 		}
 	}
 	
-	private static void exit( String banner, int code ) throws Exception {
+	private static void exit( String banner, int code ) {
 		if (code == 0)
 			LOG.info( banner );
 		else
 			LOG.warning( banner );
 		
 		LOG.info( "Press ENTER to exit" );
-		System.in.read();
+		try
+		{
+			System.in.read();
+			
+		} catch (IOException ignored) {}
 		
 		System.exit( code );
 	}
@@ -521,24 +548,33 @@ public class AdHocAgent {
 	private static Path    provided_file_path = null;
 	private static boolean is_testing         = false;
 	
-	private static  void set_provided_file_path( String path ) {
+	private static void set_provided_file_path( String path ) {
 		provided_file_path = Paths.get( (is_testing = path.endsWith( "!" )) ? path.substring( 0, path.length() - 1 ) : path );
 		is_testing         = !provided_file_path.endsWith( ".proto" );
 	}
 	
 	private static String project = "";
 	
-	private static void extract( InputStream src, Path dst ) throws IOException {
-		JarInputStream jar    = new JarInputStream( src );
-		byte[]         buffer = new byte[1024];
+	private static void extract( InputStream src ) throws Exception {
+		final JarInputStream jar               = new JarInputStream( src );
+		final byte[]         buffer            = new byte[1024];
+		final long           time              = System.currentTimeMillis();
+		final Set<String>    hosts_src_folders = new HashSet<>();
 		
 		for (JarEntry je; (je = jar.getNextJarEntry()) != null; )//extracting everything from jar into destination_dir_path
 		{
-			final String name = je.getName();
+			String name = je.getName();
 			
-			final File file = dst.resolve( name ).toFile();
+			final File file = dest_dir_path.resolve( name ).toFile();
 			
-			if (name.endsWith( "/" )) file.mkdirs();
+			if (name.endsWith( "/" ))
+			{
+				file.mkdirs();
+				if (name.indexOf( '/', name.indexOf( '/' ) + 1 ) == name.length() - 1)//catch names like InC/HOST_NAME/
+					if (!name.endsWith( "/ad_hoc-sys/" ))//skip rust Lib
+						hosts_src_folders.add( name );//populate list of host_src_folders with InC.HOST_NAME
+				
+			}
 			else
 			{
 				FileOutputStream out = new FileOutputStream( file );
@@ -555,6 +591,94 @@ public class AdHocAgent {
 			}
 		}
 		jar.close();
+		
+		
+		Files.walk( dest_dir_path )//delete only old folders and old files inside
+				.sorted( Comparator.reverseOrder() )
+				.forEach( p -> {
+					if (!(p.getParent().equals( dest_dir_path ) && Files.isRegularFile( p )) && p.toFile().lastModified() < time)
+						p.toFile().delete();
+				} );
+		
+		//code deployment starting
+		
+		String deploy_info         = "";
+		String deploy_paths_errors = "";
+		String deploy_errors       = "";
+		
+		for (String hosts_src_folder : hosts_src_folders)
+		{
+			
+			final Path src_path = dest_dir_path.resolve( hosts_src_folder );
+			
+			final String option         = hosts_src_folder + "-->>";
+			String       deploy_folders = props.getProperty( option );
+			
+			if (deploy_folders == null) deploy_info += option + ": /dst/folder1 , ../../dst/folder2 ... \n";//add deploy folders information
+			else
+			{
+				List<Path> src_files = null;
+				
+				if (hosts_src_folder.startsWith( "InKT" ))
+				{
+					Path demo = src_path.resolve( "demo_" );
+					Path test = src_path.resolve( "test_" );
+					
+					src_files = Files.walk( src_path ).filter( path -> !(path.startsWith( demo ) || path.startsWith( test )) && Files.isRegularFile( path ) ).collect( Collectors.toList() );
+				}
+				else
+					src_files = Files.walk( src_path ).filter( path -> !skipped.contains( path.getFileName().toString() ) && Files.isRegularFile( path ) ).collect( Collectors.toList() );
+				
+				
+				for (String deploy_folder : deploy_folders.split( "," ))
+				{
+					File folder = new File( deploy_folder.trim() );
+					if (!folder.exists() && !folder.mkdirs()) deploy_paths_errors += "Option " + option + " =\t\t< " + deploy_folder + " >";
+					
+					if (hosts_src_folder.startsWith( "InRS" ))
+					{
+						Path demo = src_path.resolve( "demo" );
+						
+						Path dst = folder.toPath().resolve( Paths.get( hosts_src_folder ).getFileName() );
+						for (Path source : Files.walk( src_path ).filter( path -> !path.startsWith( demo ) && Files.isRegularFile( path ) ).collect( Collectors.toList() ))//copy RUST generated code
+							deploy_errors += copy( source, dst.resolve( src_path.relativize( source ) ) );
+						
+						dst = folder.toPath().resolve( "ad_hoc-sys" );
+						for (Path source : Files.walk( dest_dir_path.resolve( "InRS/ad_hoc-sys/" ) ).filter( path -> !path.startsWith( demo ) && Files.isRegularFile( path ) ).collect( Collectors.toList() ))//copy RUST Lib code
+							deploy_errors += copy( source, dst.resolve( src_path.relativize( source ) ) );
+					}
+					else
+						for (Path source : src_files)
+							deploy_errors += copy( source, folder.toPath().resolve( src_path.relativize( source ) ) );
+				}
+			}
+		}
+		
+		if (!deploy_info.isEmpty()) System.out.println( "Add to the AdHocAgent.properties file following deployment options:\n" + deploy_info );
+		if (!deploy_errors.isEmpty()) System.out.println( "Errors in the deployment process:\n" + deploy_errors );
+		if (!deploy_paths_errors.isEmpty()) System.out.println( "The following deployment paths are cannot be created:\n" + deploy_paths_errors + " Check provided AdHocAgent.properties file content." );
+	}
+	
+	static final Set<String> skipped = new HashSet<String>(
+			Arrays.asList(
+					"Test_.c",
+					"Demo_.c",
+					"Test_.cpp",
+					"Demo_.cpp",
+					"Test_.cs",
+					"Demo_.cs",
+					"Test_.ts",
+					"Demo_.ts"
+			)
+	);
+	
+	private static String copy( Path src, Path dst ) {
+		try
+		{
+			dst.getParent().toFile().mkdirs();
+			Files.copy( src, dst, StandardCopyOption.REPLACE_EXISTING );
+			return "";
+		} catch (Exception e) {return e.toString() + "\n";}
 	}
 	
 	private static Path self_path() throws Exception {//the program binary path
@@ -577,12 +701,12 @@ public class AdHocAgent {
 	
 	private static final Pattern root_declaration = Pattern.compile( "\\s*(public|private)\\s+interface\\s+(\\w+)\\s+((extends\\s+\\w+)|(implements\\s+\\w+( ,\\w+)*))?\\s*\\{" );
 	
-	private static  int project_declaration( String src ) {
+	private static int project_declaration( String src ) {
 		Matcher position = root_declaration.matcher( src );
 		return position.find() ? position.start( 1 ) : -1;
 	}
 	
-	private static final Pattern imports_pattern = Pattern.compile( "import\\p{javaIdentifierIgnorable}*\\p{javaWhitespace}+(?:static\\p{javaIdentifierIgnorable}*\\p{javaWhitespace}+)?(\\p{javaJavaIdentifierStart}[\\p{javaJavaIdentifierPart}\\p{javaIdentifierIgnorable}]*(?:\\p{javaWhitespace}*\\.\\p{javaWhitespace}*\\*|(?:\\p{javaWhitespace}*\\.\\p{javaWhitespace}*\\p{javaJavaIdentifierStart}[\\p{javaJavaIdentifierPart}\\p{javaIdentifierIgnorable}]*)+(?:\\p{javaWhitespace}*\\.\\p{javaWhitespace}*\\*)?))\\p{javaWhitespace}*;" );
+	static final Pattern imports_pattern = Pattern.compile( "import\\p{javaIdentifierIgnorable}*\\p{javaWhitespace}+(?:static\\p{javaIdentifierIgnorable}*\\p{javaWhitespace}+)?(\\p{javaJavaIdentifierStart}[\\p{javaJavaIdentifierPart}\\p{javaIdentifierIgnorable}]*(?:\\p{javaWhitespace}*\\.\\p{javaWhitespace}*\\*|(?:\\p{javaWhitespace}*\\.\\p{javaWhitespace}*\\p{javaJavaIdentifierStart}[\\p{javaJavaIdentifierPart}\\p{javaIdentifierIgnorable}]*)+(?:\\p{javaWhitespace}*\\.\\p{javaWhitespace}*\\*)?))\\p{javaWhitespace}*;" );
 	
 	interface Protocol {
 		int
