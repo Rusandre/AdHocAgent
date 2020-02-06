@@ -539,6 +539,12 @@ search_props:
 	}
 	
 	private static final Path dest_dir_path = FileSystems.getDefault().getPath( "" ).toAbsolutePath();//working/current directory
+	private static final Path InC           = dest_dir_path.resolve( "InC" );
+	private static final Path InCPP         = dest_dir_path.resolve( "InCPP" );
+	private static final Path InCS          = dest_dir_path.resolve( "InCS" );
+	private static final Path InKT          = dest_dir_path.resolve( "InKT" );
+	private static final Path InRS          = dest_dir_path.resolve( "InRS" );
+	private static final Path InTS          = dest_dir_path.resolve( "InTS" );
 	
 	private static final Logger LOG = Logger.getLogger( "ClientAgent" );
 	
@@ -564,15 +570,15 @@ search_props:
 			
 			final File file = dest_dir_path.resolve( name ).toFile();
 			
-			if (name.endsWith( "/" ))
+			if (name.endsWith( "/" ))// a folder
 			{
 				file.mkdirs();
-				if (name.indexOf( '/', name.indexOf( '/' ) + 1 ) == name.length() - 1)//catch names like InC/HOST_NAME/
+				if (name.indexOf( '/', name.indexOf( '/' ) + 1 ) == name.length() - 1)//catch host path that looks like InC/HOST_NAME/
 					if (!name.endsWith( "/ad_hoc-sys/" ))//skip rust Lib
 						hosts_src_folders.add( name );//populate list of host_src_folders with InC.HOST_NAME
 				
 			}
-			else
+			else// a file
 			{
 				FileOutputStream out = new FileOutputStream( file );
 				for (int len; -1 < (len = jar.read( buffer )); ) out.write( buffer, 0, len );
@@ -589,12 +595,20 @@ search_props:
 		}
 		jar.close();
 		
+		if (hosts_src_folders.isEmpty()) return;//nothing to deploy
 		
 		Files.walk( dest_dir_path )//delete only old folders and old files inside
 				.sorted( Comparator.reverseOrder() )
 				.forEach( p -> {
-					if (!(p.getParent().equals( dest_dir_path ) && Files.isRegularFile( p )) && p.toFile().lastModified() < time)
-						p.toFile().delete();
+					if (
+							(p.startsWith( InC ) ||
+							 p.startsWith( InCPP ) ||
+							 p.startsWith( InCS ) ||
+							 p.startsWith( InKT ) ||
+							 p.startsWith( InRS ) ||
+							 p.startsWith( InTS )
+							)
+							&& p.toFile().lastModified() < time) p.toFile().delete();
 				} );
 		
 		//code deployment starting
@@ -677,7 +691,7 @@ search_props:
 		format = format.substring( 0, format.length() - 1 ) + "\n";
 		
 		for (String[] row : table)
-			System.out.format( format, row );
+			System.out.format( format, (Object[]) row );
 		System.out.println();
 	}
 	
