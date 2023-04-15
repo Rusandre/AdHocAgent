@@ -1,10 +1,10 @@
 # AdHocAgent
-This is source code of the program which checks prepared **AdHoc** protocol description file, pack and upload it. 
-Then waiting for server reply, download and unpack it.
+AdhocAgent is the program's source code, which checks the prepared AdHoc protocol description file, packs it, and uploads it.  
+Then it waits for a server reply, downloads, and unpacks it.
 
-Other function is to convert Protocol Buffers `.proto` files to some, closest to the **AdHoc** protocol description file format.
+Another function is to convert Protocol Buffers `.proto` files to the format closest to the **AdHoc** protocol description file.
 
-As transport, **AdHocAgent** can use raw **TCP** / **HTTP**.  
+As a transport, **AdHocAgent** can use raw **TCP** / **HTTP**.  
 
 At the beginning stage of your protocol project, when it changes frequently and getting the generated code faster is important, just ask code generation.  
 Later, when your project becomes mature, stabilizes and the confidence in the generated code becomes more important, in addition to code generation, 
